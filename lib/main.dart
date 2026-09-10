@@ -18,6 +18,7 @@ void main() async {
   await initializeDateFormatting('pt_BR', null);
   final store = AppStore();
   await store.load();
+  await store.syncGoogleCalendars();
   runApp(DioliApp(store: store));
 }
 
