@@ -1,14 +1,26 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
+import 'package:supabase_flutter/supabase_flutter.dart';
+
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  await Supabase.initialize(
+    url: 'https://jolabuoskpeyhjmpvech.supabase.co',
+    publishableKey: 'sb_publishable_85j7PQD-W41JWyLx9xfnpA_ZvH5FW7G',
+  );
+
+  await initializeDateFormatting('pt_BR', null);
   final store = AppStore();
   await store.load();
   runApp(DioliApp(store: store));
 }
+
 
 class DioliApp extends StatelessWidget {
   final AppStore store;
@@ -120,6 +132,7 @@ class Appointment {
   Color color;
   String observation;
   String status;
+  String? googleEventId;
 
   Appointment({
     required this.id,
@@ -134,6 +147,7 @@ class Appointment {
     required this.color,
     required this.observation,
     this.status = 'Agendado',
+    this.googleEventId,
   });
 
   DateTime get end => start.add(Duration(minutes: duration));
@@ -152,6 +166,7 @@ class Appointment {
         'color': color.toARGB32(),
         'observation': observation,
         'status': status,
+        'googleEventId': googleEventId,
       };
 
   factory Appointment.fromJson(Map<String, dynamic> j) => Appointment(
@@ -170,7 +185,151 @@ class Appointment {
         color: Color(j['color'] ?? AppColors.giulia.toARGB32()),
         observation: j['observation'] ?? '',
         status: j['status'] ?? 'Agendado',
+        googleEventId: j['googleEventId'],
       );
+}
+
+
+class DioliCalendarBackend {
+  static const _baseUrl =
+      'https://jolabuoskpeyhjmpvech.supabase.co/functions/v1/dioli-google-calendar';
+
+  // Defina no build:
+  // --dart-define=DIOLI_API_KEY=SUA_CHAVE
+  static const _apiKey = String.fromEnvironment('DIOLI_API_KEY');
+
+  static Map<String, String> get _headers => {
+        'Content-Type': 'application/json',
+        if (_apiKey.isNotEmpty) 'x-dioli-api-key': _apiKey,
+      };
+
+  static String _professionalName(Professional p) =>
+      p == Professional.tuani ? 'TUANI' : 'GIULIA';
+
+  static Future<List<Appointment>> listEvents(
+    Professional professional, {
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    final uri = Uri.parse('$_baseUrl/events').replace(
+      queryParameters: {
+        'professional': _professionalName(professional),
+        'timeMin': from.toUtc().toIso8601String(),
+        'timeMax': to.toUtc().toIso8601String(),
+      },
+    );
+
+    final res = await http.get(uri, headers: _headers);
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw Exception('Erro ao buscar Google Agenda: ${res.body}');
+    }
+
+    final data = jsonDecode(res.body) as Map<String, dynamic>;
+    final items = (data['events'] as List? ?? const []);
+
+    return items.map((raw) {
+      final e = Map<String, dynamic>.from(raw as Map);
+      final start = DateTime.parse(e['start'] as String).toLocal();
+      final end = DateTime.parse(e['end'] as String).toLocal();
+      final duration = end.difference(start).inMinutes.clamp(30, 8 * 60);
+
+      return Appointment(
+        id: 'google_${_professionalName(professional)}_${e['id']}',
+        googleEventId: e['id'] as String?,
+        client: (e['title'] as String?)?.trim().isNotEmpty == true
+            ? (e['title'] as String).trim()
+            : 'Compromisso',
+        service: (e['title'] as String?)?.trim().isNotEmpty == true
+            ? (e['title'] as String).trim()
+            : 'Compromisso',
+        professional: professional,
+        start: start,
+        duration: duration,
+        price: 0,
+        signal: 0,
+        paymentMethod: '',
+        color: professionalColor(professional),
+        observation: (e['description'] as String?) ?? '',
+        status: 'Agendado',
+      );
+    }).toList();
+  }
+
+  static Future<Appointment> createEvent(Appointment a) async {
+    final uri = Uri.parse('$_baseUrl/events').replace(
+      queryParameters: {
+        'professional': _professionalName(a.professional),
+      },
+    );
+
+    final res = await http.post(
+      uri,
+      headers: _headers,
+      body: jsonEncode({
+        'title': a.client,
+        'description': a.observation,
+        'start': a.start.toUtc().toIso8601String(),
+        'end': a.end.toUtc().toIso8601String(),
+      }),
+    );
+
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw Exception('Erro ao criar evento no Google: ${res.body}');
+    }
+
+    final data = jsonDecode(res.body) as Map<String, dynamic>;
+    final eventId = data['id'] as String?;
+
+    a.googleEventId = eventId;
+    if (eventId != null) {
+      a.id = 'google_${_professionalName(a.professional)}_$eventId';
+    }
+    return a;
+  }
+
+  static Future<void> updateEvent(Appointment a) async {
+    if (a.googleEventId == null || a.googleEventId!.isEmpty) return;
+
+    final uri = Uri.parse(
+      '$_baseUrl/events/${Uri.encodeComponent(a.googleEventId!)}',
+    ).replace(
+      queryParameters: {
+        'professional': _professionalName(a.professional),
+      },
+    );
+
+    final res = await http.patch(
+      uri,
+      headers: _headers,
+      body: jsonEncode({
+        'title': a.client,
+        'description': a.observation,
+        'start': a.start.toUtc().toIso8601String(),
+        'end': a.end.toUtc().toIso8601String(),
+      }),
+    );
+
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw Exception('Erro ao atualizar evento no Google: ${res.body}');
+    }
+  }
+
+  static Future<void> deleteEvent(Appointment a) async {
+    if (a.googleEventId == null || a.googleEventId!.isEmpty) return;
+
+    final uri = Uri.parse(
+      '$_baseUrl/events/${Uri.encodeComponent(a.googleEventId!)}',
+    ).replace(
+      queryParameters: {
+        'professional': _professionalName(a.professional),
+      },
+    );
+
+    final res = await http.delete(uri, headers: _headers);
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw Exception('Erro ao excluir evento no Google: ${res.body}');
+    }
+  }
 }
 
 class AppStore extends ChangeNotifier {
@@ -240,7 +399,45 @@ class AppStore extends ChangeNotifier {
     );
   }
 
+  Future<void> syncGoogleCalendars() async {
+    final now = DateTime.now();
+    final from = DateTime(now.year - 1, 1, 1);
+    final to = DateTime(now.year + 3, 12, 31, 23, 59);
+
+    for (final professional in [
+      Professional.giulia,
+      Professional.tuani,
+    ]) {
+      try {
+        final remote = await DioliCalendarBackend.listEvents(
+          professional,
+          from: from,
+          to: to,
+        );
+
+        appointments.removeWhere(
+          (a) =>
+              a.professional == professional &&
+              a.googleEventId != null,
+        );
+        appointments.addAll(remote);
+      } catch (_) {
+        // Mantém o cache local se o Google estiver temporariamente indisponível.
+      }
+    }
+
+    appointments.sort((a, b) => a.start.compareTo(b.start));
+    await save();
+    notifyListeners();
+  }
+
   Future<void> addAppointment(Appointment a) async {
+    try {
+      await DioliCalendarBackend.createEvent(a);
+    } catch (_) {
+      // Salva localmente mesmo se a internet/Google falhar.
+    }
+
     appointments.add(a);
     await save();
     notifyListeners();
@@ -255,8 +452,35 @@ class AppStore extends ChangeNotifier {
     }
   }
 
+  Future<void> syncAppointment(Appointment a) async {
+    try {
+      if (a.googleEventId == null) {
+        final oldId = a.id;
+        await DioliCalendarBackend.createEvent(a);
+        final i = appointments.indexWhere((x) => x.id == oldId);
+        if (i >= 0) appointments[i] = a;
+      } else {
+        await DioliCalendarBackend.updateEvent(a);
+      }
+      await save();
+      notifyListeners();
+    } catch (_) {
+      // A alteração continua salva localmente e poderá ser reenviada depois.
+    }
+  }
+
   Future<void> deleteAppointment(String id) async {
-    appointments.removeWhere((x) => x.id == id);
+    final i = appointments.indexWhere((x) => x.id == id);
+    if (i < 0) return;
+
+    final a = appointments[i];
+    try {
+      await DioliCalendarBackend.deleteEvent(a);
+    } catch (_) {
+      // Remove localmente mesmo se a conexão estiver temporariamente indisponível.
+    }
+
+    appointments.removeAt(i);
     await save();
     notifyListeners();
   }
@@ -302,6 +526,10 @@ class _AgendaShellState extends State<AgendaShell> {
   void initState() {
     super.initState();
     widget.store.addListener(_refresh);
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      widget.store.syncGoogleCalendars();
+    });
   }
 
   @override
@@ -315,6 +543,11 @@ class _AgendaShellState extends State<AgendaShell> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: tab == 0
+          ? (professional == Professional.giulia
+              ? const Color(0xFFEAF3FF)
+              : const Color(0xFFFFEEF4))
+          : AppColors.background,
       body: SafeArea(
         child: IndexedStack(
           index: tab,
@@ -324,7 +557,10 @@ class _AgendaShellState extends State<AgendaShell> {
               professional: professional,
               view: view,
               selectedDate: selectedDate,
-              onProfessional: (p) => setState(() => professional = p),
+              onProfessional: (p) {
+                setState(() => professional = p);
+                widget.store.syncGoogleCalendars();
+              },
               onDate: (d) => setState(() => selectedDate = d),
               onView: (v) => setState(() => view = v),
             ),
@@ -408,6 +644,20 @@ class _AgendaPageState extends State<AgendaPage> {
   Appointment? resizing;
   double resizeDelta = 0;
 
+  DateTime? creatingStart;
+  DateTime? creatingEnd;
+
+  @override
+  void initState() {
+    super.initState();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && vertical.hasClients) {
+        vertical.jumpTo(8 * hourHeight);
+      }
+    });
+  }
+
   List<Appointment> get visibleAppointments {
     return widget.store.appointments.where((a) {
       final sameProfessional = widget.professional == Professional.all ||
@@ -451,10 +701,11 @@ class _AgendaPageState extends State<AgendaPage> {
           const SizedBox(width: 4),
           const Expanded(
             child: Text(
-              'DIOLI',
+              'dioli',
               style: TextStyle(
                 color: AppColors.text,
                 fontSize: 22,
+                fontFamily: 'BostonAngel',
                 fontWeight: FontWeight.w600,
                 letterSpacing: 1.4,
               ),
@@ -498,7 +749,7 @@ class _AgendaPageState extends State<AgendaPage> {
           duration: const Duration(milliseconds: 180),
           padding: const EdgeInsets.symmetric(vertical: 11),
           decoration: BoxDecoration(
-            color: selected ? color.withOpacity(.16) : Colors.transparent,
+            color: selected ? color : Colors.transparent,
             borderRadius: BorderRadius.circular(14),
             border: Border.all(
               color: selected ? color : AppColors.line,
@@ -509,7 +760,7 @@ class _AgendaPageState extends State<AgendaPage> {
             professionalLabel(p),
             textAlign: TextAlign.center,
             style: TextStyle(
-              color: selected ? color : AppColors.muted,
+              color: selected ? Colors.white : AppColors.muted,
               fontWeight: FontWeight.w700,
               letterSpacing: .8,
             ),
@@ -638,11 +889,124 @@ class _AgendaPageState extends State<AgendaPage> {
     );
   }
 
+  DateTime _timeFromOffset(DateTime day, double dy) {
+    final minutes = ((dy / hourHeight) * 60 / 30).round() * 30;
+    final safeMinutes = minutes.clamp(0, 23 * 60 + 30);
+    return DateTime(
+      day.year,
+      day.month,
+      day.day,
+      safeMinutes ~/ 60,
+      safeMinutes % 60,
+    );
+  }
+
   Widget _timeline(DateTime day, {bool showLabels = false}) {
     return LayoutBuilder(
       builder: (context, constraints) {
         return Stack(
           children: [
+            Positioned(
+              top: 0,
+              bottom: 0,
+              left: showLabels ? 60 : 0,
+              right: 0,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onPanStart: (details) {
+                  final start = _timeFromOffset(day, details.localPosition.dy);
+                  setState(() {
+                    dragOriginal = start;
+                    dragDelta = 0;
+                    creatingStart = start;
+                    creatingEnd = start.add(const Duration(minutes: 30));
+                  });
+                },
+                onPanUpdate: (details) {
+                  if (dragOriginal == null) return;
+
+                  dragDelta += details.delta.dy;
+
+                  final current = _timeFromOffset(
+                    day,
+                    (dragOriginal!.hour * 60 + dragOriginal!.minute) / 60 * hourHeight +
+                        dragDelta,
+                  );
+
+                  final start = current.isBefore(dragOriginal!)
+                      ? current
+                      : dragOriginal!;
+                  final end = current.isAfter(dragOriginal!)
+                      ? current
+                      : dragOriginal!.add(const Duration(minutes: 30));
+
+                  setState(() {
+                    creatingStart = start;
+                    creatingEnd = end;
+                  });
+                },
+                onPanEnd: (_) {
+                  if (dragOriginal == null) return;
+
+                  final start = creatingStart ?? dragOriginal!;
+                  final end = creatingEnd ??
+                      start.add(const Duration(minutes: 30));
+                  final duration =
+                      ((end.difference(start).inMinutes / 30).round() * 30)
+                          .clamp(30, 8 * 60);
+
+                  setState(() {
+                    dragOriginal = null;
+                    dragDelta = 0;
+                    creatingStart = null;
+                    creatingEnd = null;
+                  });
+
+                  _showAppointmentDialog(
+                    context,
+                    initialStart: start,
+                    initialDuration: duration,
+                  );
+                },
+              ),
+            ),
+            if (creatingStart != null && creatingEnd != null)
+              Positioned(
+                top: (creatingStart!.hour * 60 + creatingStart!.minute) /
+                    60 *
+                    hourHeight,
+                left: showLabels ? 64 : 4,
+                right: 4,
+                height: ((creatingEnd!.difference(creatingStart!).inMinutes) /
+                        60 *
+                        hourHeight)
+                    .clamp(44.0, 24 * hourHeight),
+                child: IgnorePointer(
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(vertical: 2),
+                    decoration: BoxDecoration(
+                      color: professionalColor(widget.professional)
+                          .withOpacity(.25),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border(
+                        left: BorderSide(
+                          color: professionalColor(widget.professional),
+                          width: 4,
+                        ),
+                      ),
+                    ),
+                    padding: const EdgeInsets.all(8),
+                    child: Text(
+                      '${DateFormat("HH:mm").format(creatingStart!)} – ${DateFormat("HH:mm").format(creatingEnd!)}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: professionalColor(widget.professional),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             for (int h = 0; h < 24; h++)
               Positioned(
                 top: h * hourHeight,
@@ -716,9 +1080,16 @@ class _AgendaPageState extends State<AgendaPage> {
           final updated = _copyAppointment(a, start: newStart);
           widget.store.updateAppointment(updated);
         },
-        onVerticalDragEnd: (_) {
+        onVerticalDragEnd: (_) async {
           dragOriginal = null;
           dragDelta = 0;
+          final current = widget.store.appointments
+              .where((x) => x.id == a.id)
+              .cast<Appointment?>()
+              .firstWhere((x) => x != null, orElse: () => null);
+          if (current != null) {
+            await widget.store.syncAppointment(current);
+          }
         },
         child: Container(
           margin: const EdgeInsets.symmetric(vertical: 2),
@@ -732,30 +1103,38 @@ class _AgendaPageState extends State<AgendaPage> {
           child: Stack(
             children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(10, 7, 10, 12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      a.client,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: AppColors.text,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 13,
-                      ),
-                    ),
-                    Text(
-                      '${DateFormat('HH:mm').format(a.start)} • ${a.service}',
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: AppColors.muted,
-                        fontSize: 10.5,
-                      ),
-                    ),
-                  ],
+                padding: const EdgeInsets.fromLTRB(10, 5, 10, 5),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final showDetails = constraints.maxHeight >= 34;
+
+                    return Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          a.client,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: AppColors.text,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13,
+                          ),
+                        ),
+                        if (showDetails)
+                          Text(
+                            '${DateFormat('HH:mm').format(a.start)} • ${a.service}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: AppColors.muted,
+                              fontSize: 10.5,
+                            ),
+                          ),
+                      ],
+                    );
+                  },
                 ),
               ),
               Positioned(
@@ -774,15 +1153,22 @@ class _AgendaPageState extends State<AgendaPage> {
                     final minutesDelta =
                         (resizeDelta / hourHeight * 60).round();
                     final newDuration =
-                        ((a.duration + minutesDelta) / 15).round() * 15;
-                    final safe = newDuration.clamp(15, 8 * 60);
+                        ((a.duration + minutesDelta) / 30).round() * 30;
+                    final safe = newDuration.clamp(30, 8 * 60);
                     widget.store.updateAppointment(
                       _copyAppointment(a, duration: safe),
                     );
                   },
-                  onVerticalDragEnd: (_) {
+                  onVerticalDragEnd: (_) async {
                     resizing = null;
                     resizeDelta = 0;
+                    final current = widget.store.appointments
+                        .where((x) => x.id == a.id)
+                        .cast<Appointment?>()
+                        .firstWhere((x) => x != null, orElse: () => null);
+                    if (current != null) {
+                      await widget.store.syncAppointment(current);
+                    }
                   },
                   child: Center(
                     child: Container(
@@ -804,7 +1190,7 @@ class _AgendaPageState extends State<AgendaPage> {
   }
 
   DateTime _snapTime(DateTime d) {
-    final rounded = ((d.minute / 15).round() * 15);
+    final rounded = ((d.minute / 30).round() * 30);
     var result = DateTime(d.year, d.month, d.day, d.hour, rounded);
     if (rounded == 60) {
       result = DateTime(d.year, d.month, d.day, d.hour + 1);
@@ -831,6 +1217,7 @@ class _AgendaPageState extends State<AgendaPage> {
       color: color ?? a.color,
       observation: a.observation,
       status: a.status,
+      googleEventId: a.googleEventId,
     );
   }
 
@@ -951,6 +1338,8 @@ class _AgendaPageState extends State<AgendaPage> {
   Future<void> _showAppointmentDialog(
     BuildContext context, {
     Appointment? existing,
+    DateTime? initialStart,
+    int? initialDuration,
   }) async {
     final client = TextEditingController(text: existing?.client ?? '');
     final obs = TextEditingController(text: existing?.observation ?? '');
@@ -962,11 +1351,8 @@ class _AgendaPageState extends State<AgendaPage> {
     );
 
     Professional pro = existing?.professional ?? widget.professional;
-    ServiceItem? service = widget.store.services.cast<ServiceItem?>().firstWhere(
-          (s) => s?.name == existing?.service,
-          orElse: () => null,
-        );
     DateTime start = existing?.start ??
+        initialStart ??
         DateTime(
           widget.selectedDate.year,
           widget.selectedDate.month,
@@ -974,7 +1360,8 @@ class _AgendaPageState extends State<AgendaPage> {
           9,
           0,
         );
-    int duration = existing?.duration ?? service?.duration ?? 30;
+    int duration =
+        existing?.duration ?? initialDuration ?? 30;
     Color color = existing?.color ?? professionalColor(pro);
     String payment = existing?.paymentMethod ?? 'Pix';
     bool signalPaid = (existing?.signal ?? 0) > 0;
@@ -998,59 +1385,6 @@ class _AgendaPageState extends State<AgendaPage> {
                         labelText: 'Nome da cliente',
                         prefixIcon: Icon(Icons.person_outline),
                       ),
-                    ),
-                    const SizedBox(height: 10),
-                    DropdownButtonFormField<ServiceItem>(
-                      value: service,
-                      decoration: const InputDecoration(
-                        labelText: 'Serviço',
-                        prefixIcon: Icon(Icons.spa_outlined),
-                      ),
-                      items: widget.store.services
-                          .map((s) => DropdownMenuItem(
-                                value: s,
-                                child: Text(
-                                  '${s.name} • R\$ ${s.price.toStringAsFixed(2)}',
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ))
-                          .toList(),
-                      onChanged: (s) {
-                        setLocal(() {
-                          service = s;
-                          if (s != null) {
-                            duration = s.duration;
-                            price.text = s.price.toStringAsFixed(2);
-                            pro = s.professional;
-                            if (existing == null) color = professionalColor(pro);
-                          }
-                        });
-                      },
-                    ),
-                    const SizedBox(height: 10),
-                    DropdownButtonFormField<Professional>(
-                      value: pro,
-                      decoration: const InputDecoration(
-                        labelText: 'Profissional',
-                        prefixIcon: Icon(Icons.badge_outlined),
-                      ),
-                      items: const [
-                        DropdownMenuItem(
-                          value: Professional.giulia,
-                          child: Text('GIULIA'),
-                        ),
-                        DropdownMenuItem(
-                          value: Professional.tuani,
-                          child: Text('TUANI'),
-                        ),
-                      ],
-                      onChanged: (p) {
-                        if (p == null) return;
-                        setLocal(() {
-                          pro = p;
-                          if (existing == null) color = professionalColor(pro);
-                        });
-                      },
                     ),
                     const SizedBox(height: 10),
                     ListTile(
@@ -1082,7 +1416,7 @@ class _AgendaPageState extends State<AgendaPage> {
                         labelText: 'Duração',
                         prefixIcon: Icon(Icons.schedule_outlined),
                       ),
-                      items: [15, 30, 45, 60, 75, 90, 120, 150, 180]
+                      items: [30, 60, 90, 120, 150, 180]
                           .map((m) => DropdownMenuItem(
                                 value: m,
                                 child: Text('$m minutos'),
@@ -1206,12 +1540,12 @@ class _AgendaPageState extends State<AgendaPage> {
                     final a = Appointment(
                       id: existing?.id ?? DateTime.now().microsecondsSinceEpoch.toString(),
                       client: client.text.trim(),
-                      service: service?.name ?? 'Serviço',
+                      service: client.text.trim(),
                       professional: pro,
                       start: start,
                       duration: duration,
                       price: total,
-                      signal: sig,
+                      signal: sig.toDouble(),
                       paymentMethod: signalPaid ? payment : '',
                       color: color,
                       observation: obs.text.trim(),
@@ -1220,7 +1554,9 @@ class _AgendaPageState extends State<AgendaPage> {
                     if (existing == null) {
                       await widget.store.addAppointment(a);
                     } else {
+                      a.googleEventId = existing.googleEventId;
                       await widget.store.updateAppointment(a);
+                      await widget.store.syncAppointment(a);
                     }
                     if (context.mounted) Navigator.pop(context, true);
                   },
@@ -1597,6 +1933,33 @@ class MorePage extends StatelessWidget {
             title: const Text('Visualização da agenda'),
             subtitle: Text(_viewName(currentView)),
             onTap: () => _chooseView(context),
+          ),
+          const Divider(),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 10, 16, 6),
+            child: Text(
+              'GOOGLE AGENDA',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 1,
+                color: AppColors.muted,
+              ),
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.calendar_month_outlined),
+            title: const Text('GIULIA'),
+            subtitle: const Text('Sincronização Google configurada'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {},
+          ),
+          ListTile(
+            leading: const Icon(Icons.calendar_month_outlined),
+            title: const Text('TUANI'),
+            subtitle: const Text('Sincronização Google configurada'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {},
           ),
           const Divider(),
           const ListTile(
