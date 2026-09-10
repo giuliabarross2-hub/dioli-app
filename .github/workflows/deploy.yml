@@ -29,7 +29,7 @@ jobs:
         run: flutter pub get
 
       - name: Compilar Flutter Web
-        run: flutter build web --release --base-href "/dioli-app/"
+        run: flutter build web --release --base-href "/dioli-app/" --dart-define=DIOLI_API_KEY=${{ secrets.DIOLI_API_KEY }}
 
       - name: Configurar Pages
         uses: actions/configure-pages@v5
