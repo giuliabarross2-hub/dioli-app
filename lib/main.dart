@@ -1144,10 +1144,16 @@ class _AgendaPageState extends State<AgendaPage> {
                     .add(Duration(days: i)),
               );
 
-    if (days.length == 1) return _dayView(days.first);
+    final viewStep = widget.view == CalendarView.day
+        ? 1
+        : widget.view == CalendarView.threeDays
+            ? 3
+            : 7;
 
-    return Scrollbar(
-      controller: vertical,
+    final content = days.length == 1
+        ? _dayView(days.first)
+        : Scrollbar(
+            controller: vertical,
       thumbVisibility: true,
       trackVisibility: true,
       thickness: 7,
@@ -1192,6 +1198,19 @@ class _AgendaPageState extends State<AgendaPage> {
         ],
       ),
       ),
+            );
+
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onHorizontalDragEnd: (details) {
+        final velocity = details.primaryVelocity ?? 0;
+        if (velocity < -250) {
+          _moveDate(viewStep);
+        } else if (velocity > 250) {
+          _moveDate(-viewStep);
+        }
+      },
+      child: content,
     );
   }
 
