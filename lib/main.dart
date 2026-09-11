@@ -879,6 +879,7 @@ class _AgendaPageState extends State<AgendaPage> {
       children: [
         SingleChildScrollView(
           controller: vertical,
+          physics: const NeverScrollableScrollPhysics(),
           child: SizedBox(
             height: 24 * hourHeight,
             child: Row(
