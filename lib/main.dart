@@ -1154,6 +1154,7 @@ class _AgendaPageState extends State<AgendaPage> {
       radius: const Radius.circular(8),
       child: SingleChildScrollView(
         controller: vertical,
+        physics: const ClampingScrollPhysics(),
         child: Column(
         children: [
           Row(
@@ -1196,88 +1197,55 @@ class _AgendaPageState extends State<AgendaPage> {
 
   Widget _dayView(DateTime day) {
     const timeColumnWidth = 62.0;
-    const scrollColumnWidth = 44.0;
 
+    // A visualização diária usa exatamente o mesmo sistema de rolagem
+    // das visualizações de 3 dias e semana. A rolagem fica livre no
+    // conteúdo inteiro e a criação acontece somente com pressionar e segurar.
     return Stack(
       children: [
-        Padding(
-          padding: const EdgeInsets.only(right: scrollColumnWidth),
-          child: Scrollbar(
+        Scrollbar(
+          controller: vertical,
+          thumbVisibility: true,
+          trackVisibility: true,
+          thickness: 7,
+          radius: const Radius.circular(8),
+          child: SingleChildScrollView(
             controller: vertical,
-            thumbVisibility: true,
-            trackVisibility: true,
-            thickness: 7,
-            radius: const Radius.circular(8),
-            child: SingleChildScrollView(
-              controller: vertical,
-              physics: const NeverScrollableScrollPhysics(),
-              child: SizedBox(
-                height: 24 * hourHeight,
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Coluna exclusiva dos horários.
-                    SizedBox(
-                      width: timeColumnWidth,
-                      height: 24 * hourHeight,
-                      child: Column(
-                        children: List.generate(
-                          24,
-                          (h) => SizedBox(
-                            height: hourHeight,
-                            child: Align(
-                              alignment: Alignment.topCenter,
-                              child: Text(
-                                '${h.toString().padLeft(2, '0')}:00',
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(
-                                  fontSize: 10,
-                                  color: AppColors.muted,
-                                ),
+            physics: const ClampingScrollPhysics(),
+            child: SizedBox(
+              height: 24 * hourHeight,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(
+                    width: timeColumnWidth,
+                    height: 24 * hourHeight,
+                    child: Column(
+                      children: List.generate(
+                        24,
+                        (h) => SizedBox(
+                          height: hourHeight,
+                          child: Align(
+                            alignment: Alignment.topCenter,
+                            child: Text(
+                              '${h.toString().padLeft(2, '0')}:00',
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                fontSize: 10,
+                                color: AppColors.muted,
                               ),
                             ),
                           ),
                         ),
                       ),
                     ),
-
-                    // Área dos agendamentos.
-                    Expanded(
-                      child: _timeline(day),
-                    ),
-                  ],
-                ),
+                  ),
+                  Expanded(child: _timeline(day)),
+                ],
               ),
             ),
           ),
         ),
-
-        // Faixa livre exclusiva para rolagem. Ela não toca nos agendamentos.
-        Positioned(
-          top: 0,
-          right: 0,
-          bottom: 0,
-          width: scrollColumnWidth,
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onVerticalDragStart: (_) {},
-            onVerticalDragUpdate: (details) {
-              if (!vertical.hasClients) return;
-
-              final target = vertical.offset - details.delta.dy;
-              vertical.jumpTo(
-                target.clamp(
-                  0.0,
-                  vertical.position.maxScrollExtent,
-                ),
-              );
-            },
-            child: Container(
-              color: Colors.transparent,
-            ),
-          ),
-        ),
-
         Positioned(
           right: 18,
           bottom: 18,
@@ -1320,7 +1288,9 @@ class _AgendaPageState extends State<AgendaPage> {
               right: 0,
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                onPanStart: (details) {
+                // Arrastar normalmente fica livre para a rolagem da agenda.
+                // Só um pressionar + segurar inicia a criação.
+                onLongPressStart: (details) {
                   final start = _timeFromOffset(
                     day,
                     details.localPosition.dy,
@@ -1335,10 +1305,10 @@ class _AgendaPageState extends State<AgendaPage> {
                     );
                   });
                 },
-                onPanUpdate: (details) {
+                onLongPressMoveUpdate: (details) {
                   if (dragOriginal == null) return;
 
-                  dragDelta += details.delta.dy;
+                  dragDelta = details.offsetFromOrigin.dy;
 
                   final current = _timeFromOffset(
                     day,
@@ -1364,7 +1334,7 @@ class _AgendaPageState extends State<AgendaPage> {
                     creatingEnd = end;
                   });
                 },
-                onPanEnd: (_) {
+                onLongPressEnd: (_) {
                   if (dragOriginal == null) return;
 
                   final start = creatingStart ?? dragOriginal!;
