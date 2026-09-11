@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
@@ -557,6 +558,7 @@ class AgendaShell extends StatefulWidget {
 }
 
 class _AgendaShellState extends State<AgendaShell> {
+  Timer? nowTimer;
   int tab = 0;
   Professional professional = Professional.giulia;
   CalendarView view = CalendarView.day;
@@ -568,6 +570,10 @@ class _AgendaShellState extends State<AgendaShell> {
   void initState() {
     super.initState();
     widget.store.addListener(_refresh);
+
+    nowTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) setState(() {});
+    });
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       widget.store.syncGoogleCalendars();
@@ -914,6 +920,7 @@ class _AgendaPageState extends State<AgendaPage> {
   DateTime? creatingEnd;
   bool refreshing = false;
   final ScrollController monthScroll = ScrollController();
+  Timer? nowTimer;
 
   @override
   void initState() {
@@ -930,6 +937,7 @@ class _AgendaPageState extends State<AgendaPage> {
   void dispose() {
     vertical.dispose();
     monthScroll.dispose();
+    nowTimer?.cancel();
     super.dispose();
   }
 
@@ -1118,36 +1126,6 @@ class _AgendaPageState extends State<AgendaPage> {
     );
   }
 
-  void _moveVisiblePeriod(int direction) {
-    switch (widget.view) {
-      case CalendarView.day:
-        widget.onDate(widget.selectedDate.add(Duration(days: direction)));
-        break;
-      case CalendarView.threeDays:
-        widget.onDate(widget.selectedDate.add(Duration(days: 3 * direction)));
-        break;
-      case CalendarView.week:
-        widget.onDate(widget.selectedDate.add(Duration(days: 7 * direction)));
-        break;
-      case CalendarView.month:
-        final current = widget.selectedDate;
-        widget.onDate(DateTime(current.year, current.month + direction, 1));
-        break;
-    }
-  }
-
-  Widget _horizontalPeriodSwipe(Widget child) {
-    return GestureDetector(
-      behavior: HitTestBehavior.translucent,
-      onHorizontalDragEnd: (details) {
-        final velocity = details.primaryVelocity ?? 0;
-        if (velocity.abs() < 220) return;
-        _moveVisiblePeriod(velocity < 0 ? 1 : -1);
-      },
-      child: child,
-    );
-  }
-
   Widget _calendar() {
     if (widget.view == CalendarView.month) {
       return _monthView();
@@ -1166,12 +1144,9 @@ class _AgendaPageState extends State<AgendaPage> {
                     .add(Duration(days: i)),
               );
 
-    if (days.length == 1) {
-      return _horizontalPeriodSwipe(_dayView(days.first));
-    }
+    if (days.length == 1) return _dayView(days.first);
 
-    return _horizontalPeriodSwipe(
-      Scrollbar(
+    return Scrollbar(
       controller: vertical,
       thumbVisibility: true,
       trackVisibility: true,
@@ -1216,7 +1191,6 @@ class _AgendaPageState extends State<AgendaPage> {
         ],
       ),
       ),
-    ),
     );
   }
 
@@ -1319,7 +1293,10 @@ class _AgendaPageState extends State<AgendaPage> {
   }
 
   DateTime _timeFromOffset(DateTime day, double dy) {
-    final minutes = ((dy / hourHeight) * 60 / 30).round() * 30;
+    // Usa blocos de 30 minutos por faixa: tocar no começo da hora
+    // (ex.: 14:00) deve iniciar exatamente às 14:00, sem exigir
+    // que o toque seja no meio do bloco.
+    final minutes = ((dy / hourHeight) * 60 / 30).floor() * 30;
     final safeMinutes = minutes.clamp(0, 23 * 60 + 30);
     return DateTime(
       day.year,
@@ -1343,7 +1320,7 @@ class _AgendaPageState extends State<AgendaPage> {
               right: 0,
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                onVerticalDragStart: (details) {
+                onPanStart: (details) {
                   final start = _timeFromOffset(
                     day,
                     details.localPosition.dy,
@@ -1358,7 +1335,7 @@ class _AgendaPageState extends State<AgendaPage> {
                     );
                   });
                 },
-                onVerticalDragUpdate: (details) {
+                onPanUpdate: (details) {
                   if (dragOriginal == null) return;
 
                   dragDelta += details.delta.dy;
@@ -1387,7 +1364,7 @@ class _AgendaPageState extends State<AgendaPage> {
                     creatingEnd = end;
                   });
                 },
-                onVerticalDragEnd: (_) {
+                onPanEnd: (_) {
                   if (dragOriginal == null) return;
 
                   final start = creatingStart ?? dragOriginal!;
@@ -1413,17 +1390,36 @@ class _AgendaPageState extends State<AgendaPage> {
                     initialDuration: duration,
                   );
                 },
-                onVerticalDragCancel: () {
-                  if (dragOriginal == null && creatingStart == null) return;
-                  setState(() {
-                    dragOriginal = null;
-                    dragDelta = 0;
-                    creatingStart = null;
-                    creatingEnd = null;
-                  });
-                },
               ),
             ),
+
+            // Linha do horário atual, como no Google Agenda.
+            if (_sameDay(day, DateTime.now()))
+              Positioned(
+                top: ((DateTime.now().hour * 60 + DateTime.now().minute) / 60) * hourHeight,
+                left: 0,
+                right: 0,
+                child: IgnorePointer(
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: professionalColor(widget.professional),
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      Expanded(
+                        child: Container(
+                          height: 2,
+                          color: professionalColor(widget.professional),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
 
             if (creatingStart != null && creatingEnd != null)
               Positioned(
@@ -2160,6 +2156,7 @@ class _AgendaPageState extends State<AgendaPage> {
                               TextField(
                                 controller: client,
                                 autofocus: existing == null,
+                                textCapitalization: TextCapitalization.sentences,
                                 decoration: const InputDecoration(
                                   labelText: 'Nome da cliente',
                                   prefixIcon: Icon(Icons.person_outline),
