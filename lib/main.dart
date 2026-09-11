@@ -1196,7 +1196,7 @@ class _AgendaPageState extends State<AgendaPage> {
 
   Widget _dayView(DateTime day) {
     const timeColumnWidth = 62.0;
-    const scrollColumnWidth = 30.0;
+    const scrollColumnWidth = 44.0;
 
     return Stack(
       children: [
@@ -1210,7 +1210,7 @@ class _AgendaPageState extends State<AgendaPage> {
             radius: const Radius.circular(8),
             child: SingleChildScrollView(
               controller: vertical,
-              physics: const ClampingScrollPhysics(),
+              physics: const NeverScrollableScrollPhysics(),
               child: SizedBox(
                 height: 24 * hourHeight,
                 child: Row(
