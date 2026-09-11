@@ -1143,81 +1143,117 @@ class _AgendaPageState extends State<AgendaPage> {
       children: [
         Padding(
           padding: const EdgeInsets.only(right: scrollColumnWidth),
-          child: Scrollbar(
+          child: SingleChildScrollView(
             controller: vertical,
-            thumbVisibility: true,
-            trackVisibility: true,
-            thickness: 7,
-            radius: const Radius.circular(8),
-            child: SingleChildScrollView(
-              controller: vertical,
-              // A faixa estreita da direita é a área dedicada à rolagem.
-              // Assim o arrastar no calendário fica livre para criar/mover agendamentos.
-              physics: const NeverScrollableScrollPhysics(),
-              child: SizedBox(
-                height: 24 * hourHeight,
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Coluna exclusiva dos horários.
-                    SizedBox(
-                      width: timeColumnWidth,
-                      height: 24 * hourHeight,
-                      child: Column(
-                        children: List.generate(
-                          24,
-                          (h) => SizedBox(
-                            height: hourHeight,
-                            child: Align(
-                              alignment: Alignment.topCenter,
-                              child: Text(
-                                '${h.toString().padLeft(2, '0')}:00',
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(
-                                  fontSize: 10,
-                                  color: AppColors.muted,
-                                ),
+            physics: const NeverScrollableScrollPhysics(),
+            child: SizedBox(
+              height: 24 * hourHeight,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(
+                    width: timeColumnWidth,
+                    height: 24 * hourHeight,
+                    child: Column(
+                      children: List.generate(
+                        24,
+                        (h) => SizedBox(
+                          height: hourHeight,
+                          child: Align(
+                            alignment: Alignment.topCenter,
+                            child: Text(
+                              '${h.toString().padLeft(2, '0')}:00',
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                fontSize: 10,
+                                color: AppColors.muted,
                               ),
                             ),
                           ),
                         ),
                       ),
                     ),
-
-                    // Área dos agendamentos.
-                    Expanded(
-                      child: _timeline(day),
-                    ),
-                  ],
-                ),
+                  ),
+                  Expanded(child: _timeline(day)),
+                ],
               ),
             ),
           ),
         ),
 
-        // Faixa livre exclusiva para rolagem. Ela não toca nos agendamentos.
+        // Faixa lateral exclusiva para rolagem. O palitinho é desenhado aqui
+        // e pode ser arrastado sem interferir na criação de agendamentos.
         Positioned(
           top: 0,
           right: 0,
           bottom: 0,
           width: scrollColumnWidth,
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onVerticalDragStart: (_) {},
-            onVerticalDragUpdate: (details) {
-              if (!vertical.hasClients) return;
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return AnimatedBuilder(
+                animation: vertical,
+                builder: (context, _) {
+                  final hasClients = vertical.hasClients;
+                  final maxScroll = hasClients ? vertical.position.maxScrollExtent : 0.0;
+                  final viewport = hasClients ? vertical.position.viewportDimension : constraints.maxHeight;
+                  final content = viewport + maxScroll;
+                  final thumbHeight = content > 0
+                      ? (constraints.maxHeight * viewport / content).clamp(40.0, constraints.maxHeight)
+                      : constraints.maxHeight;
+                  final travel = (constraints.maxHeight - thumbHeight).clamp(0.0, double.infinity);
+                  final thumbTop = maxScroll > 0
+                      ? (vertical.offset / maxScroll * travel).clamp(0.0, travel)
+                      : 0.0;
 
-              final target = vertical.offset - details.delta.dy;
-              vertical.jumpTo(
-                target.clamp(
-                  0.0,
-                  vertical.position.maxScrollExtent,
-                ),
+                  void scrollTo(double localDy) {
+                    if (!vertical.hasClients || maxScroll <= 0) return;
+                    final target = ((localDy - thumbHeight / 2) / travel * maxScroll)
+                        .clamp(0.0, maxScroll);
+                    vertical.jumpTo(target);
+                  }
+
+                  return GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onVerticalDragStart: (details) => scrollTo(details.localPosition.dy),
+                    onVerticalDragUpdate: (details) {
+                      if (!vertical.hasClients || maxScroll <= 0) return;
+                      final target = vertical.offset + details.delta.dy / travel * maxScroll;
+                      vertical.jumpTo(target.clamp(0.0, maxScroll));
+                    },
+                    onTapDown: (details) => scrollTo(details.localPosition.dy),
+                    child: Stack(
+                      children: [
+                        Positioned.fill(
+                          child: Align(
+                            alignment: Alignment.centerRight,
+                            child: Container(
+                              width: 3,
+                              margin: const EdgeInsets.symmetric(vertical: 8),
+                              decoration: BoxDecoration(
+                                color: AppColors.line,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                            ),
+                          ),
+                        ),
+                        Positioned(
+                          top: thumbTop + 8,
+                          right: 5,
+                          child: Container(
+                            width: 9,
+                            height: (thumbHeight - 16).clamp(24.0, thumbHeight),
+                            decoration: BoxDecoration(
+                              color: AppColors.muted.withOpacity(.75),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
               );
             },
-            child: Container(
-              color: Colors.transparent,
-            ),
           ),
         ),
 
@@ -1786,6 +1822,36 @@ class _AgendaPageState extends State<AgendaPage> {
                     'Data',
                     DateFormat("EEEE, dd 'de' MMMM 'de' yyyy", 'pt_BR')
                         .format(a.start),
+                    onTap: () async {
+                      final d = await showDatePicker(
+                        context: context,
+                        useRootNavigator: true,
+                        locale: const Locale('pt', 'BR'),
+                        initialDate: a.start,
+                        firstDate: DateTime(2020),
+                        lastDate: DateTime(2100),
+                        helpText: 'Selecionar data',
+                        cancelText: 'Cancelar',
+                        confirmText: 'OK',
+                      );
+                      if (d == null) return;
+                      final updated = _copyAppointment(
+                        a,
+                        start: DateTime(
+                          d.year,
+                          d.month,
+                          d.day,
+                          a.start.hour,
+                          a.start.minute,
+                        ),
+                      );
+                      await widget.store.updateAppointment(updated);
+                      await widget.store.syncAppointment(updated);
+                      if (context.mounted) Navigator.pop(sheetContext);
+                      if (context.mounted) {
+                        await _showAppointmentDetails(context, updated);
+                      }
+                    },
                   ),
                   _detailRow(
                     Icons.schedule_outlined,
@@ -1833,38 +1899,50 @@ class _AgendaPageState extends State<AgendaPage> {
     );
   }
 
-  Widget _detailRow(IconData icon, String label, String value) {
+  Widget _detailRow(
+    IconData icon,
+    String label,
+    String value, {
+    VoidCallback? onTap,
+  }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 18),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, size: 21, color: AppColors.muted),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: AppColors.muted,
-                    fontWeight: FontWeight.w700,
-                  ),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(icon, size: 21, color: AppColors.muted),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: AppColors.muted,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      value,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 3),
-                Text(
-                  value,
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -1943,6 +2021,8 @@ class _AgendaPageState extends State<AgendaPage> {
     final signal = TextEditingController(
       text: existing == null ? '' : existing.signal.toStringAsFixed(2),
     );
+    final clientFocus = FocusNode();
+    bool focusRequested = false;
 
     Professional pro = existing?.professional ?? widget.professional;
     DateTime start = existing?.start ??
@@ -1988,6 +2068,13 @@ class _AgendaPageState extends State<AgendaPage> {
               });
             }
 
+            if (existing == null && !focusRequested) {
+              focusRequested = true;
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (context.mounted) clientFocus.requestFocus();
+              });
+            }
+
             return FractionallySizedBox(
               heightFactor: .96,
               child: Material(
@@ -2025,7 +2112,9 @@ class _AgendaPageState extends State<AgendaPage> {
                             children: [
                               TextField(
                                 controller: client,
+                                focusNode: clientFocus,
                                 autofocus: existing == null,
+                                textCapitalization: TextCapitalization.words,
                                 decoration: const InputDecoration(
                                   labelText: 'Nome da cliente',
                                   prefixIcon: Icon(Icons.person_outline),
