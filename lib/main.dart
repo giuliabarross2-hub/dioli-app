@@ -872,15 +872,80 @@ class _AgendaPageState extends State<AgendaPage> {
   }
 
   Widget _dayView(DateTime day) {
+    const timeColumnWidth = 60.0;
+    const scrollColumnWidth = 32.0;
+
     return Stack(
       children: [
         SingleChildScrollView(
           controller: vertical,
           child: SizedBox(
             height: 24 * hourHeight,
-            child: _timeline(day, showLabels: true),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Coluna exclusiva dos horários.
+                SizedBox(
+                  width: timeColumnWidth,
+                  height: 24 * hourHeight,
+                  child: Column(
+                    children: List.generate(
+                      24,
+                      (h) => SizedBox(
+                        height: hourHeight,
+                        child: Align(
+                          alignment: Alignment.topCenter,
+                          child: Text(
+                            '${h.toString().padLeft(2, '0')}:00',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontSize: 10,
+                              color: AppColors.muted,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+
+                // Área dos agendamentos.
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: scrollColumnWidth),
+                    child: _timeline(day),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
+
+        // Faixa livre exclusiva para rolagem.
+        Positioned(
+          top: 0,
+          right: 0,
+          bottom: 0,
+          width: scrollColumnWidth,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onVerticalDragUpdate: (details) {
+              if (!vertical.hasClients) return;
+
+              final target =
+                  vertical.offset - details.delta.dy;
+
+              vertical.jumpTo(
+                target.clamp(
+                  0.0,
+                  vertical.position.maxScrollExtent,
+                ),
+              );
+            },
+            child: const SizedBox.expand(),
+          ),
+        ),
+
         Positioned(
           right: 18,
           bottom: 18,
@@ -912,20 +977,27 @@ class _AgendaPageState extends State<AgendaPage> {
       builder: (context, constraints) {
         return Stack(
           children: [
+            // Área livre para criar um novo agendamento.
             Positioned(
               top: 0,
               bottom: 0,
-              left: showLabels ? 60 : 0,
+              left: 0,
               right: 0,
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onPanStart: (details) {
-                  final start = _timeFromOffset(day, details.localPosition.dy);
+                  final start = _timeFromOffset(
+                    day,
+                    details.localPosition.dy,
+                  );
+
                   setState(() {
                     dragOriginal = start;
                     dragDelta = 0;
                     creatingStart = start;
-                    creatingEnd = start.add(const Duration(minutes: 30));
+                    creatingEnd = start.add(
+                      const Duration(minutes: 30),
+                    );
                   });
                 },
                 onPanUpdate: (details) {
@@ -935,16 +1007,22 @@ class _AgendaPageState extends State<AgendaPage> {
 
                   final current = _timeFromOffset(
                     day,
-                    (dragOriginal!.hour * 60 + dragOriginal!.minute) / 60 * hourHeight +
+                    (dragOriginal!.hour * 60 +
+                            dragOriginal!.minute) /
+                        60 *
+                        hourHeight +
                         dragDelta,
                   );
 
                   final start = current.isBefore(dragOriginal!)
                       ? current
                       : dragOriginal!;
+
                   final end = current.isAfter(dragOriginal!)
                       ? current
-                      : dragOriginal!.add(const Duration(minutes: 30));
+                      : dragOriginal!.add(
+                          const Duration(minutes: 30),
+                        );
 
                   setState(() {
                     creatingStart = start;
@@ -957,8 +1035,11 @@ class _AgendaPageState extends State<AgendaPage> {
                   final start = creatingStart ?? dragOriginal!;
                   final end = creatingEnd ??
                       start.add(const Duration(minutes: 30));
+
                   final duration =
-                      ((end.difference(start).inMinutes / 30).round() * 30)
+                      ((end.difference(start).inMinutes / 30)
+                                  .round() *
+                              30)
                           .clamp(30, 8 * 60);
 
                   setState(() {
@@ -976,83 +1057,79 @@ class _AgendaPageState extends State<AgendaPage> {
                 },
               ),
             ),
+
             if (creatingStart != null && creatingEnd != null)
               Positioned(
-                top: (creatingStart!.hour * 60 + creatingStart!.minute) /
+                top: (creatingStart!.hour * 60 +
+                        creatingStart!.minute) /
                     60 *
                     hourHeight,
-                left: showLabels ? 64 : 4,
+                left: 4,
                 right: 4,
-                height: ((creatingEnd!.difference(creatingStart!).inMinutes) /
-                        60 *
-                        hourHeight)
-                    .clamp(44.0, 24 * hourHeight),
+                height: ((creatingEnd!
+                                    .difference(creatingStart!)
+                                    .inMinutes) /
+                                60 *
+                            hourHeight)
+                        .clamp(44.0, 24 * hourHeight),
                 child: IgnorePointer(
                   child: Container(
                     margin: const EdgeInsets.symmetric(vertical: 2),
                     decoration: BoxDecoration(
-                      color: professionalColor(widget.professional)
-                          .withOpacity(.25),
+                      color: professionalColor(
+                        widget.professional,
+                      ).withOpacity(.25),
                       borderRadius: BorderRadius.circular(10),
                       border: Border(
                         left: BorderSide(
-                          color: professionalColor(widget.professional),
+                          color: professionalColor(
+                            widget.professional,
+                          ),
                           width: 4,
                         ),
                       ),
                     ),
                     padding: const EdgeInsets.all(8),
                     child: Text(
-                      '${DateFormat("HH:mm").format(creatingStart!)} – ${DateFormat("HH:mm").format(creatingEnd!)}',
+                      '${DateFormat("HH:mm").format(creatingStart!)} – '
+                      '${DateFormat("HH:mm").format(creatingEnd!)}',
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
-                        color: professionalColor(widget.professional),
+                        color: professionalColor(
+                          widget.professional,
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
+
+            // Linhas da agenda.
             for (int h = 0; h < 24; h++)
               Positioned(
                 top: h * hourHeight,
-                left: showLabels ? 60 : 0,
+                left: 0,
                 right: 0,
-                child: SizedBox(
-                  height: hourHeight,
-                  child: Column(
-                    children: [
-                      Row(
-                        children: [
-                          if (showLabels)
-                            SizedBox(
-                              width: 60,
-                              child: Text(
-                                '${h.toString().padLeft(2, '0')}:00',
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(
-                                  fontSize: 10,
-                                  color: AppColors.muted,
-                                ),
-                              ),
-                            ),
-                          Expanded(
-                            child: Container(
-                              height: 1,
-                              color: AppColors.line,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
+                child: Container(
+                  height: 1,
+                  color: AppColors.line,
                 ),
               ),
+
+            // Agendamentos.
             ...widget.store.appointments
-                .where((a) =>
-                    a.professional == widget.professional &&
-                    _sameDay(a.start, day))
-                .map((a) => _appointmentCard(a, showLabels)),
+                .where(
+                  (a) =>
+                      a.professional == widget.professional &&
+                      _sameDay(a.start, day),
+                )
+                .map(
+                  (a) => _appointmentCard(
+                    a,
+                    false,
+                  ),
+                ),
           ],
         );
       },
@@ -1063,7 +1140,7 @@ class _AgendaPageState extends State<AgendaPage> {
     final minutes = a.start.hour * 60 + a.start.minute;
     final top = minutes / 60 * hourHeight;
     final height = (a.duration / 60 * hourHeight).clamp(44.0, 24 * hourHeight);
-    final left = showLabels ? 64.0 : 4.0;
+    final left = 4.0;
     final right = 4.0;
 
     return Positioned(
