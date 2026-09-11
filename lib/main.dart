@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:intl/intl.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -582,12 +583,16 @@ class _AgendaShellState extends State<AgendaShell> {
             SearchPage(
               store: widget.store,
               initialQuery: search,
+              onBack: () => _selectTab(0),
             ),
-            ServicesPage(store: widget.store),
-            FinancePage(store: widget.store),
+            ServicesPage(
+              store: widget.store,
+              onBack: () => _selectTab(0),
+            ),
             MorePage(
               onView: _selectView,
               currentView: view,
+              onBack: () => _selectTab(0),
             ),
           ],
         ),
@@ -643,21 +648,12 @@ class _AgendaShellState extends State<AgendaShell> {
               },
             ),
             _drawerItem(
-              icon: Icons.account_balance_wallet_outlined,
-              title: 'Financeiro',
+              icon: Icons.more_horiz,
+              title: 'Mais',
               selected: tab == 3,
               onTap: () {
                 Navigator.pop(context);
                 _selectTab(3);
-              },
-            ),
-            _drawerItem(
-              icon: Icons.more_horiz,
-              title: 'Mais',
-              selected: tab == 4,
-              onTap: () {
-                Navigator.pop(context);
-                _selectTab(4);
               },
             ),
             const Divider(height: 32),
@@ -872,6 +868,8 @@ class _AgendaPageState extends State<AgendaPage> {
 
   DateTime? creatingStart;
   DateTime? creatingEnd;
+  bool refreshing = false;
+  final ScrollController monthScroll = ScrollController();
 
   @override
   void initState() {
@@ -882,6 +880,23 @@ class _AgendaPageState extends State<AgendaPage> {
         vertical.jumpTo(8 * hourHeight);
       }
     });
+  }
+
+  @override
+  void dispose() {
+    vertical.dispose();
+    monthScroll.dispose();
+    super.dispose();
+  }
+
+  Future<void> _refreshGoogle() async {
+    if (refreshing) return;
+    setState(() => refreshing = true);
+    try {
+      await widget.store.syncGoogleCalendars();
+    } finally {
+      if (mounted) setState(() => refreshing = false);
+    }
   }
 
   List<Appointment> get visibleAppointments {
@@ -955,6 +970,17 @@ class _AgendaPageState extends State<AgendaPage> {
             tooltip: 'Hoje',
             onPressed: () => widget.onDate(DateTime.now()),
             icon: const Icon(Icons.today_outlined),
+          ),
+          IconButton(
+            tooltip: 'Atualizar agenda',
+            onPressed: refreshing ? null : _refreshGoogle,
+            icon: refreshing
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.refresh_rounded),
           ),
         ],
       ),
@@ -1067,8 +1093,15 @@ class _AgendaPageState extends State<AgendaPage> {
 
     if (days.length == 1) return _dayView(days.first);
 
-    return SingleChildScrollView(
-      child: Column(
+    return Scrollbar(
+      controller: vertical,
+      thumbVisibility: true,
+      trackVisibility: true,
+      thickness: 7,
+      radius: const Radius.circular(8),
+      child: SingleChildScrollView(
+        controller: vertical,
+        child: Column(
         children: [
           Row(
             children: days
@@ -1096,6 +1129,7 @@ class _AgendaPageState extends State<AgendaPage> {
             ),
           ),
         ],
+      ),
       ),
     );
   }
@@ -1388,7 +1422,7 @@ class _AgendaPageState extends State<AgendaPage> {
       right: right,
       height: height.toDouble(),
       child: GestureDetector(
-        onTap: () => _showAppointmentDialog(context, existing: a),
+        onTap: () => _showAppointmentDetails(context, a),
 
         // Mover o agendamento agora exige segurar primeiro.
         // Isso evita que uma rolagem acidental altere o horário.
@@ -1458,14 +1492,15 @@ class _AgendaPageState extends State<AgendaPage> {
                             fontSize: 13,
                           ),
                         ),
-                        if (showDetails)
+                        if (showDetails && a.signal > 0)
                           Text(
-                            '${DateFormat('HH:mm').format(a.start)} • ${a.service}',
+                            'Sinal: R\$ ${a.signal.toStringAsFixed(2).replaceAll('.', ',')}',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
                               color: AppColors.muted,
                               fontSize: 10.5,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
                       ],
@@ -1605,8 +1640,15 @@ class _AgendaPageState extends State<AgendaPage> {
         ),
         const SizedBox(height: 4),
         Expanded(
-          child: GridView.builder(
-            padding: const EdgeInsets.all(10),
+          child: Scrollbar(
+            controller: monthScroll,
+            thumbVisibility: true,
+            trackVisibility: true,
+            thickness: 7,
+            radius: const Radius.circular(8),
+            child: GridView.builder(
+              controller: monthScroll,
+              padding: const EdgeInsets.all(10),
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: 7,
               childAspectRatio: .82,
@@ -1662,9 +1704,225 @@ class _AgendaPageState extends State<AgendaPage> {
                 ),
               );
             },
+            ),
           ),
         ),
       ],
+    );
+  }
+
+  Future<void> _showAppointmentDetails(
+    BuildContext context,
+    Appointment a,
+  ) async {
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => FractionallySizedBox(
+        heightFactor: .94,
+        child: Material(
+          color: AppColors.card,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(22, 14, 22, 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      IconButton(
+                        tooltip: 'Fechar',
+                        onPressed: () => Navigator.pop(sheetContext),
+                        icon: const Icon(Icons.close),
+                      ),
+                      Expanded(
+                        child: Text(
+                          'Agendamento',
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Editar',
+                        onPressed: () async {
+                          Navigator.pop(sheetContext);
+                          await _showAppointmentDialog(
+                            context,
+                            existing: a,
+                          );
+                        },
+                        icon: const Icon(Icons.edit_outlined),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  Container(
+                    width: 5,
+                    height: 76,
+                    decoration: BoxDecoration(
+                      color: a.color,
+                      borderRadius: BorderRadius.circular(5),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    a.client,
+                    style: const TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  _detailRow(
+                    Icons.calendar_today_outlined,
+                    'Data',
+                    DateFormat("EEEE, dd 'de' MMMM 'de' yyyy", 'pt_BR')
+                        .format(a.start),
+                  ),
+                  _detailRow(
+                    Icons.schedule_outlined,
+                    'Horário',
+                    '${DateFormat('HH:mm').format(a.start)} – '
+                        '${DateFormat('HH:mm').format(a.end)}',
+                  ),
+                  if (a.signal > 0)
+                    _detailRow(
+                      Icons.payments_outlined,
+                      'Sinal',
+                      'R\$ ${a.signal.toStringAsFixed(2).replaceAll('.', ',')}',
+                    ),
+                  if (a.observation.trim().isNotEmpty)
+                    _detailRow(
+                      Icons.notes_outlined,
+                      'Observação',
+                      a.observation.trim(),
+                    ),
+                  const Spacer(),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppColors.text,
+                        padding: const EdgeInsets.symmetric(vertical: 15),
+                      ),
+                      onPressed: () async {
+                        Navigator.pop(sheetContext);
+                        await _showAppointmentDialog(
+                          context,
+                          existing: a,
+                        );
+                      },
+                      icon: const Icon(Icons.edit_outlined),
+                      label: const Text('Editar agendamento'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _detailRow(IconData icon, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 18),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 21, color: AppColors.muted),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: AppColors.muted,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  value,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<TimeOfDay?> _pickTimeWheel(
+    BuildContext context,
+    TimeOfDay initial,
+  ) async {
+    DateTime value = DateTime(
+      2024,
+      1,
+      1,
+      initial.hour,
+      initial.minute,
+    );
+
+    return showModalBottomSheet<TimeOfDay>(
+      context: context,
+      backgroundColor: AppColors.card,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return SizedBox(
+          height: 310,
+          child: Column(
+            children: [
+              const Padding(
+                padding: EdgeInsets.only(top: 4),
+                child: Text(
+                  'Selecionar horário',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+                ),
+              ),
+              Expanded(
+                child: CupertinoDatePicker(
+                  mode: CupertinoDatePickerMode.time,
+                  use24hFormat: true,
+                  minuteInterval: 5,
+                  initialDateTime: value,
+                  onDateTimeChanged: (d) => value = d,
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.text,
+                    ),
+                    onPressed: () => Navigator.pop(
+                      sheetContext,
+                      TimeOfDay(hour: value.hour, minute: value.minute),
+                    ),
+                    child: const Text('OK'),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -1693,209 +1951,306 @@ class _AgendaPageState extends State<AgendaPage> {
           9,
           0,
         );
-    int duration =
-        existing?.duration ?? initialDuration ?? 30;
+    final initialEnd = existing?.end ??
+        start.add(Duration(minutes: initialDuration ?? 30));
+    DateTime end = initialEnd;
     Color color = existing?.color ?? professionalColor(pro);
     String payment = existing?.paymentMethod ?? 'Pix';
     bool signalPaid = (existing?.signal ?? 0) > 0;
 
-    final result = await showDialog<bool>(
+    final result = await showModalBottomSheet<bool>(
       context: context,
-      builder: (dialogContext) {
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
         return StatefulBuilder(
           builder: (context, setLocal) {
-            return AlertDialog(
-              backgroundColor: AppColors.card,
-              title: Text(existing == null ? 'Novo agendamento' : 'Editar agendamento'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextField(
-                      controller: client,
-                      autofocus: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Nome da cliente',
-                        prefixIcon: Icon(Icons.person_outline),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Data e horário'),
-                      subtitle: Text(DateFormat("dd/MM/yyyy • HH:mm").format(start)),
-                      trailing: const Icon(Icons.edit_calendar_outlined),
-                      onTap: () async {
-                        final d = await showDatePicker(
-                          context: context,
-                          initialDate: start,
-                          firstDate: DateTime(2020),
-                          lastDate: DateTime(2100),
-                        );
-                        if (d == null) return;
-                        final t = await showTimePicker(
-                          context: context,
-                          initialTime: TimeOfDay.fromDateTime(start),
-                        );
-                        if (t == null) return;
-                        setLocal(() {
-                          start = DateTime(d.year, d.month, d.day, t.hour, t.minute);
-                        });
-                      },
-                    ),
-                    DropdownButtonFormField<int>(
-                      value: duration,
-                      decoration: const InputDecoration(
-                        labelText: 'Duração',
-                        prefixIcon: Icon(Icons.schedule_outlined),
-                      ),
-                      items: [30, 60, 90, 120, 150, 180]
-                          .map((m) => DropdownMenuItem(
-                                value: m,
-                                child: Text('$m minutos'),
-                              ))
-                          .toList(),
-                      onChanged: (m) => setLocal(() => duration = m ?? 30),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: price,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      decoration: const InputDecoration(
-                        labelText: 'Valor total',
-                        prefixText: 'R\$ ',
-                        prefixIcon: Icon(Icons.payments_outlined),
-                      ),
-                    ),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Sinal pago'),
-                      value: signalPaid,
-                      onChanged: (v) => setLocal(() => signalPaid = v),
-                    ),
-                    if (signalPaid) ...[
-                      TextField(
-                        controller: signal,
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        decoration: const InputDecoration(
-                          labelText: 'Valor do sinal',
-                          prefixText: 'R\$ ',
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      DropdownButtonFormField<String>(
-                        value: payment,
-                        decoration: const InputDecoration(labelText: 'Forma de pagamento'),
-                        items: const ['Pix', 'Dinheiro', 'Crédito', 'Débito']
-                            .map((p) => DropdownMenuItem(value: p, child: Text(p)))
-                            .toList(),
-                        onChanged: (p) => setLocal(() => payment = p ?? 'Pix'),
-                      ),
-                    ],
-                    const SizedBox(height: 10),
-                    const Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        'Cor do agendamento',
-                        style: TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      children: [
-                        AppColors.giulia,
-                        AppColors.tuani,
-                        AppColors.green,
-                        AppColors.yellow,
-                        AppColors.purple,
-                        AppColors.red,
-                      ].map((c) {
-                        return GestureDetector(
-                          onTap: () => setLocal(() => color = c),
-                          child: Container(
-                            width: 30,
-                            height: 30,
-                            decoration: BoxDecoration(
-                              color: c,
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: color.toARGB32() == c.toARGB32()
-                                    ? AppColors.text
-                                    : Colors.transparent,
-                                width: 2,
+            Future<void> pickDate() async {
+              final d = await showDatePicker(
+                context: context,
+                locale: const Locale('pt', 'BR'),
+                initialDate: start,
+                firstDate: DateTime(2020),
+                lastDate: DateTime(2100),
+                helpText: 'Selecionar data',
+                cancelText: 'Cancelar',
+                confirmText: 'OK',
+              );
+              if (d == null) return;
+              setLocal(() {
+                start = DateTime(d.year, d.month, d.day, start.hour, start.minute);
+                end = DateTime(d.year, d.month, d.day, end.hour, end.minute);
+              });
+            }
+
+            return FractionallySizedBox(
+              heightFactor: .96,
+              child: Material(
+                color: AppColors.card,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                child: SafeArea(
+                  child: Column(
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(10, 8, 10, 4),
+                        child: Row(
+                          children: [
+                            IconButton(
+                              onPressed: () => Navigator.pop(sheetContext, false),
+                              icon: const Icon(Icons.close),
+                            ),
+                            Expanded(
+                              child: Text(
+                                existing == null
+                                    ? 'Novo agendamento'
+                                    : 'Editar agendamento',
+                                style: const TextStyle(
+                                  fontSize: 19,
+                                  fontWeight: FontWeight.w800,
+                                ),
                               ),
                             ),
-                            child: color.toARGB32() == c.toARGB32()
-                                ? const Icon(Icons.check, size: 17, color: Colors.white)
-                                : null,
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: obs,
-                      maxLines: 3,
-                      decoration: const InputDecoration(
-                        labelText: 'Observação',
-                        alignLabelWithHint: true,
+                          ],
+                        ),
                       ),
-                    ),
-                  ],
+                      Expanded(
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.fromLTRB(22, 8, 22, 24),
+                          child: Column(
+                            children: [
+                              TextField(
+                                controller: client,
+                                autofocus: existing == null,
+                                decoration: const InputDecoration(
+                                  labelText: 'Nome da cliente',
+                                  prefixIcon: Icon(Icons.person_outline),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: const Icon(Icons.calendar_today_outlined),
+                                title: const Text('Data'),
+                                subtitle: Text(
+                                  DateFormat("EEEE, dd 'de' MMMM 'de' yyyy", 'pt_BR')
+                                      .format(start),
+                                ),
+                                trailing: const Icon(Icons.chevron_right),
+                                onTap: pickDate,
+                              ),
+                              ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: const Icon(Icons.schedule_outlined),
+                                title: const Text('Hora de início'),
+                                subtitle: Text(DateFormat('HH:mm').format(start)),
+                                trailing: const Icon(Icons.chevron_right),
+                                onTap: () async {
+                                  final t = await _pickTimeWheel(
+                                    context,
+                                    TimeOfDay.fromDateTime(start),
+                                  );
+                                  if (t == null) return;
+                                  setLocal(() {
+                                    start = DateTime(
+                                      start.year,
+                                      start.month,
+                                      start.day,
+                                      t.hour,
+                                      t.minute,
+                                    );
+                                    if (!end.isAfter(start)) {
+                                      end = start.add(const Duration(minutes: 30));
+                                    }
+                                  });
+                                },
+                              ),
+                              ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: const Icon(Icons.schedule_outlined),
+                                title: const Text('Hora de término'),
+                                subtitle: Text(DateFormat('HH:mm').format(end)),
+                                trailing: const Icon(Icons.chevron_right),
+                                onTap: () async {
+                                  final t = await _pickTimeWheel(
+                                    context,
+                                    TimeOfDay.fromDateTime(end),
+                                  );
+                                  if (t == null) return;
+                                  setLocal(() {
+                                    end = DateTime(
+                                      start.year,
+                                      start.month,
+                                      start.day,
+                                      t.hour,
+                                      t.minute,
+                                    );
+                                  });
+                                },
+                              ),
+                              const Divider(height: 28),
+                              TextField(
+                                controller: price,
+                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                decoration: const InputDecoration(
+                                  labelText: 'Valor total',
+                                  prefixText: 'R\$ ',
+                                  prefixIcon: Icon(Icons.payments_outlined),
+                                ),
+                              ),
+                              SwitchListTile(
+                                contentPadding: EdgeInsets.zero,
+                                title: const Text('Sinal pago'),
+                                value: signalPaid,
+                                onChanged: (v) => setLocal(() => signalPaid = v),
+                              ),
+                              if (signalPaid) ...[
+                                TextField(
+                                  controller: signal,
+                                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                  decoration: const InputDecoration(
+                                    labelText: 'Valor do sinal',
+                                    prefixText: 'R\$ ',
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                DropdownButtonFormField<String>(
+                                  value: payment,
+                                  decoration: const InputDecoration(labelText: 'Forma de pagamento'),
+                                  items: const ['Pix', 'Dinheiro', 'Crédito', 'Débito']
+                                      .map((p) => DropdownMenuItem(value: p, child: Text(p)))
+                                      .toList(),
+                                  onChanged: (p) => setLocal(() => payment = p ?? 'Pix'),
+                                ),
+                              ],
+                              const SizedBox(height: 18),
+                              const Align(
+                                alignment: Alignment.centerLeft,
+                                child: Text(
+                                  'Cor do agendamento',
+                                  style: TextStyle(fontWeight: FontWeight.w600),
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 8,
+                                children: [
+                                  AppColors.giulia,
+                                  AppColors.tuani,
+                                  AppColors.green,
+                                  AppColors.yellow,
+                                  AppColors.purple,
+                                  AppColors.red,
+                                ].map((c) {
+                                  return GestureDetector(
+                                    onTap: () => setLocal(() => color = c),
+                                    child: Container(
+                                      width: 30,
+                                      height: 30,
+                                      decoration: BoxDecoration(
+                                        color: c,
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                          color: color.toARGB32() == c.toARGB32()
+                                              ? AppColors.text
+                                              : Colors.transparent,
+                                          width: 2,
+                                        ),
+                                      ),
+                                      child: color.toARGB32() == c.toARGB32()
+                                          ? const Icon(Icons.check, size: 17, color: Colors.white)
+                                          : null,
+                                    ),
+                                  );
+                                }).toList(),
+                              ),
+                              const SizedBox(height: 18),
+                              TextField(
+                                controller: obs,
+                                maxLines: 4,
+                                decoration: const InputDecoration(
+                                  labelText: 'Observação',
+                                  alignLabelWithHint: true,
+                                ),
+                              ),
+                              const SizedBox(height: 22),
+                              Row(
+                                children: [
+                                  if (existing != null)
+                                    Expanded(
+                                      child: OutlinedButton(
+                                        style: OutlinedButton.styleFrom(
+                                          foregroundColor: AppColors.red,
+                                        ),
+                                        onPressed: () async {
+                                          await widget.store.deleteAppointment(existing.id);
+                                          if (context.mounted) {
+                                            Navigator.pop(sheetContext, true);
+                                          }
+                                        },
+                                        child: const Text('Excluir'),
+                                      ),
+                                    ),
+                                  if (existing != null) const SizedBox(width: 10),
+                                  Expanded(
+                                    flex: 2,
+                                    child: FilledButton(
+                                      style: FilledButton.styleFrom(
+                                        backgroundColor: AppColors.text,
+                                        padding: const EdgeInsets.symmetric(vertical: 15),
+                                      ),
+                                      onPressed: () async {
+                                        if (!end.isAfter(start)) {
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            const SnackBar(
+                                              content: Text('A hora de término deve ser depois da hora de início.'),
+                                            ),
+                                          );
+                                          return;
+                                        }
+                                        final total = double.tryParse(price.text.replaceAll(',', '.')) ?? 0;
+                                        final sig = signalPaid
+                                            ? (double.tryParse(signal.text.replaceAll(',', '.')) ?? 0)
+                                            : 0;
+                                        final duration = end.difference(start).inMinutes;
+                                        final a = Appointment(
+                                          id: existing?.id ?? DateTime.now().microsecondsSinceEpoch.toString(),
+                                          client: client.text.trim(),
+                                          service: existing?.service ?? '',
+                                          professional: pro,
+                                          start: start,
+                                          duration: duration.clamp(5, 24 * 60),
+                                          price: total,
+                                          signal: sig.toDouble(),
+                                          paymentMethod: signalPaid ? payment : '',
+                                          color: color,
+                                          observation: obs.text.trim(),
+                                          status: existing?.status ?? 'Agendado',
+                                        );
+                                        if (existing == null) {
+                                          await widget.store.addAppointment(a);
+                                        } else {
+                                          a.googleEventId = existing.googleEventId;
+                                          await widget.store.updateAppointment(a);
+                                          await widget.store.syncAppointment(a);
+                                        }
+                                        if (context.mounted) {
+                                          Navigator.pop(sheetContext, true);
+                                        }
+                                      },
+                                      child: const Text('Salvar'),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-              actions: [
-                if (existing != null)
-                  TextButton(
-                    onPressed: () async {
-                      await widget.store.deleteAppointment(existing.id);
-                      if (context.mounted) Navigator.pop(context, true);
-                    },
-                    child: const Text(
-                      'Excluir',
-                      style: TextStyle(color: AppColors.red),
-                    ),
-                  ),
-                TextButton(
-                  onPressed: () => Navigator.pop(context, false),
-                  child: const Text('Cancelar'),
-                ),
-                FilledButton(
-                  style: FilledButton.styleFrom(
-                    backgroundColor: AppColors.text,
-                  ),
-                  onPressed: () async {
-                    final total = double.tryParse(price.text.replaceAll(',', '.')) ?? 0;
-                    final sig = signalPaid
-                        ? (double.tryParse(signal.text.replaceAll(',', '.')) ?? 0)
-                        : 0;
-                    final a = Appointment(
-                      id: existing?.id ?? DateTime.now().microsecondsSinceEpoch.toString(),
-                      client: client.text.trim(),
-                      service: client.text.trim(),
-                      professional: pro,
-                      start: start,
-                      duration: duration,
-                      price: total,
-                      signal: sig.toDouble(),
-                      paymentMethod: signalPaid ? payment : '',
-                      color: color,
-                      observation: obs.text.trim(),
-                      status: existing?.status ?? 'Agendado',
-                    );
-                    if (existing == null) {
-                      await widget.store.addAppointment(a);
-                    } else {
-                      a.googleEventId = existing.googleEventId;
-                      await widget.store.updateAppointment(a);
-                      await widget.store.syncAppointment(a);
-                    }
-                    if (context.mounted) Navigator.pop(context, true);
-                  },
-                  child: const Text('Salvar'),
-                ),
-              ],
             );
           },
         );
@@ -1906,12 +2261,19 @@ class _AgendaPageState extends State<AgendaPage> {
       setState(() {});
     }
   }
+
 }
 
 class SearchPage extends StatefulWidget {
   final AppStore store;
   final String initialQuery;
-  const SearchPage({super.key, required this.store, required this.initialQuery});
+  final VoidCallback? onBack;
+  const SearchPage({
+    super.key,
+    required this.store,
+    required this.initialQuery,
+    this.onBack,
+  });
 
   @override
   State<SearchPage> createState() => _SearchPageState();
@@ -1931,14 +2293,27 @@ class _SearchPageState extends State<SearchPage> {
   @override
   Widget build(BuildContext context) {
     final results = widget.store.appointments.where((a) {
-      return a.client.toLowerCase().contains(query.toLowerCase()) ||
-          a.service.toLowerCase().contains(query.toLowerCase());
+      final q = query.toLowerCase().trim();
+      return a.client.toLowerCase().contains(q) ||
+          a.observation.toLowerCase().contains(q);
     }).toList()
-      ..sort((a, b) => a.start.compareTo(b.start));
+      ..sort((a, b) {
+        final now = DateTime.now();
+        final aFuture = !a.start.isBefore(now);
+        final bFuture = !b.start.isBefore(now);
+        if (aFuture && bFuture) return a.start.compareTo(b.start);
+        if (!aFuture && !bFuture) return b.start.compareTo(a.start);
+        return aFuture ? -1 : 1;
+      });
 
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
+        leading: IconButton(
+          tooltip: 'Voltar',
+          onPressed: widget.onBack ?? () => Navigator.maybePop(context),
+          icon: const Icon(Icons.arrow_back),
+        ),
         title: const Text('Pesquisar'),
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -1952,7 +2327,7 @@ class _SearchPageState extends State<SearchPage> {
               autofocus: true,
               onChanged: (v) => setState(() => query = v),
               decoration: InputDecoration(
-                hintText: 'Pesquisar cliente ou serviço',
+                hintText: 'Pesquisar cliente ou informação',
                 prefixIcon: const Icon(Icons.search),
                 suffixIcon: query.isEmpty
                     ? null
@@ -1999,9 +2374,9 @@ class _SearchPageState extends State<SearchPage> {
                           style: const TextStyle(fontWeight: FontWeight.w700),
                         ),
                         subtitle: Text(
-                          '${a.service}\n${professionalLabel(a.professional)} • ${DateFormat("dd/MM/yyyy • HH:mm").format(a.start)}',
+                          '${professionalLabel(a.professional)} • ${DateFormat("dd/MM/yyyy • HH:mm").format(a.start)}',
                         ),
-                        isThreeLine: true,
+                        isThreeLine: false,
                       ),
                     );
                   },
@@ -2015,13 +2390,19 @@ class _SearchPageState extends State<SearchPage> {
 
 class ServicesPage extends StatelessWidget {
   final AppStore store;
-  const ServicesPage({super.key, required this.store});
+  final VoidCallback onBack;
+  const ServicesPage({super.key, required this.store, required this.onBack});
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
+        leading: IconButton(
+          tooltip: 'Voltar',
+          onPressed: onBack,
+          icon: const Icon(Icons.arrow_back),
+        ),
         title: const Text('Serviços'),
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -2245,10 +2626,12 @@ class FinancePage extends StatelessWidget {
 class MorePage extends StatelessWidget {
   final ValueChanged<CalendarView> onView;
   final CalendarView currentView;
+  final VoidCallback onBack;
   const MorePage({
     super.key,
     required this.onView,
     required this.currentView,
+    required this.onBack,
   });
 
   @override
@@ -2256,6 +2639,11 @@ class MorePage extends StatelessWidget {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
+        leading: IconButton(
+          tooltip: 'Voltar',
+          onPressed: onBack,
+          icon: const Icon(Icons.arrow_back),
+        ),
         title: const Text('Mais'),
         backgroundColor: Colors.transparent,
         elevation: 0,
