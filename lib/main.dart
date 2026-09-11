@@ -18,8 +18,11 @@ void main() async {
   await initializeDateFormatting('pt_BR', null);
   final store = AppStore();
   await store.load();
-  await store.syncGoogleCalendars();
   runApp(DioliApp(store: store));
+
+  // Sincroniza com o Google em segundo plano,
+  // sem impedir o aplicativo de abrir.
+  store.syncGoogleCalendars();
 }
 
 
