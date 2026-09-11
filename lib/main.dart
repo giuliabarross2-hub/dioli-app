@@ -546,6 +546,14 @@ class _AgendaShellState extends State<AgendaShell> {
 
   void _refresh() => setState(() {});
 
+  void _selectTab(int index) {
+    setState(() => tab = index);
+  }
+
+  void _selectView(CalendarView newView) {
+    setState(() => view = newView);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -554,6 +562,7 @@ class _AgendaShellState extends State<AgendaShell> {
               ? const Color(0xFFEAF3FF)
               : const Color(0xFFFFEEF4))
           : AppColors.background,
+      drawer: _buildDrawer(context),
       body: SafeArea(
         child: IndexedStack(
           index: tab,
@@ -568,7 +577,7 @@ class _AgendaShellState extends State<AgendaShell> {
                 widget.store.syncGoogleCalendars();
               },
               onDate: (d) => setState(() => selectedDate = d),
-              onView: (v) => setState(() => view = v),
+              onView: _selectView,
             ),
             SearchPage(
               store: widget.store,
@@ -577,42 +586,253 @@ class _AgendaShellState extends State<AgendaShell> {
             ServicesPage(store: widget.store),
             FinancePage(store: widget.store),
             MorePage(
-              onView: (v) => setState(() => view = v),
+              onView: _selectView,
               currentView: view,
             ),
           ],
         ),
       ),
-      bottomNavigationBar: NavigationBar(
-        backgroundColor: AppColors.card,
-        indicatorColor: AppColors.background,
-        selectedIndex: tab,
-        onDestinationSelected: (i) => setState(() => tab = i),
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.calendar_month_outlined),
-            selectedIcon: Icon(Icons.calendar_month),
-            label: 'Agenda',
+    );
+  }
+
+  Drawer _buildDrawer(BuildContext context) {
+    return Drawer(
+      backgroundColor: Colors.white,
+      child: SafeArea(
+        child: ListView(
+          padding: EdgeInsets.zero,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(28, 28, 24, 18),
+              child: Text(
+                'dioli',
+                style: TextStyle(
+                  color: AppColors.text,
+                  fontSize: 34,
+                  fontFamily: 'BostonAngel',
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 1.5,
+                ),
+              ),
+            ),
+            _drawerItem(
+              icon: Icons.calendar_month_outlined,
+              title: 'Agenda',
+              selected: tab == 0,
+              onTap: () {
+                Navigator.pop(context);
+                _selectTab(0);
+              },
+            ),
+            _drawerItem(
+              icon: Icons.search_rounded,
+              title: 'Pesquisar',
+              selected: tab == 1,
+              onTap: () {
+                Navigator.pop(context);
+                _selectTab(1);
+              },
+            ),
+            _drawerItem(
+              icon: Icons.spa_outlined,
+              title: 'Serviços',
+              selected: tab == 2,
+              onTap: () {
+                Navigator.pop(context);
+                _selectTab(2);
+              },
+            ),
+            _drawerItem(
+              icon: Icons.account_balance_wallet_outlined,
+              title: 'Financeiro',
+              selected: tab == 3,
+              onTap: () {
+                Navigator.pop(context);
+                _selectTab(3);
+              },
+            ),
+            _drawerItem(
+              icon: Icons.more_horiz,
+              title: 'Mais',
+              selected: tab == 4,
+              onTap: () {
+                Navigator.pop(context);
+                _selectTab(4);
+              },
+            ),
+            const Divider(height: 32),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(28, 4, 24, 8),
+              child: Text(
+                'VISUALIZAÇÃO',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 1.1,
+                  color: AppColors.muted,
+                ),
+              ),
+            ),
+            _drawerViewItem(
+              icon: Icons.view_day_outlined,
+              title: 'Dia',
+              view: CalendarView.day,
+              selected: view == CalendarView.day,
+            ),
+            _drawerViewItem(
+              icon: Icons.view_week_outlined,
+              title: 'Três dias',
+              view: CalendarView.threeDays,
+              selected: view == CalendarView.threeDays,
+            ),
+            _drawerViewItem(
+              icon: Icons.calendar_view_week_outlined,
+              title: 'Semana',
+              view: CalendarView.week,
+              selected: view == CalendarView.week,
+            ),
+            _drawerViewItem(
+              icon: Icons.calendar_month_outlined,
+              title: 'Mês',
+              view: CalendarView.month,
+              selected: view == CalendarView.month,
+            ),
+            const Divider(height: 32),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(28, 4, 24, 8),
+              child: Text(
+                'PROFISSIONAL',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 1.1,
+                  color: AppColors.muted,
+                ),
+              ),
+            ),
+            _drawerProfessionalItem(
+              title: 'GIULIA',
+              color: AppColors.giulia,
+              selected: professional == Professional.giulia,
+              onTap: () {
+                Navigator.pop(context);
+                setState(() => professional = Professional.giulia);
+                widget.store.syncGoogleCalendars();
+              },
+            ),
+            _drawerProfessionalItem(
+              title: 'TUANI',
+              color: AppColors.tuani,
+              selected: professional == Professional.tuani,
+              onTap: () {
+                Navigator.pop(context);
+                setState(() => professional = Professional.tuani);
+                widget.store.syncGoogleCalendars();
+              },
+            ),
+            const Divider(height: 32),
+            ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 28),
+              leading: const Icon(Icons.today_outlined),
+              title: const Text('Ir para hoje'),
+              onTap: () {
+                Navigator.pop(context);
+                setState(() => selectedDate = DateTime.now());
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _drawerItem({
+    required IconData icon,
+    required String title,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      child: ListTile(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+        tileColor: selected
+            ? (professional == Professional.giulia
+                ? const Color(0xFFDCEAFF)
+                : const Color(0xFFFFE1EC))
+            : null,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+        leading: Icon(icon, color: AppColors.text),
+        title: Text(
+          title,
+          style: TextStyle(
+            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+            color: AppColors.text,
           ),
-          NavigationDestination(
-            icon: Icon(Icons.search),
-            label: 'Pesquisar',
+        ),
+        onTap: onTap,
+      ),
+    );
+  }
+
+  Widget _drawerViewItem({
+    required IconData icon,
+    required String title,
+    required CalendarView view,
+    required bool selected,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      child: ListTile(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+        tileColor: selected ? const Color(0xFFE9E9E9) : null,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+        leading: Icon(icon, color: AppColors.text),
+        title: Text(
+          title,
+          style: TextStyle(
+            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+            color: AppColors.text,
           ),
-          NavigationDestination(
-            icon: Icon(Icons.spa_outlined),
-            selectedIcon: Icon(Icons.spa),
-            label: 'Serviços',
+        ),
+        trailing: selected
+            ? const Icon(Icons.check_rounded, size: 20)
+            : null,
+        onTap: () {
+          Navigator.pop(context);
+          _selectTab(0);
+          _selectView(view);
+        },
+      ),
+    );
+  }
+
+  Widget _drawerProfessionalItem({
+    required String title,
+    required Color color,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      child: ListTile(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+        tileColor: selected ? color.withOpacity(.12) : null,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+        leading: CircleAvatar(
+          radius: 10,
+          backgroundColor: color,
+        ),
+        title: Text(
+          title,
+          style: TextStyle(
+            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
           ),
-          NavigationDestination(
-            icon: Icon(Icons.account_balance_wallet_outlined),
-            selectedIcon: Icon(Icons.account_balance_wallet),
-            label: 'Financeiro',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.more_horiz),
-            label: 'Mais',
-          ),
-        ],
+        ),
+        trailing: selected
+            ? Icon(Icons.check_rounded, color: color, size: 20)
+            : null,
+        onTap: onTap,
       ),
     );
   }
@@ -699,10 +919,12 @@ class _AgendaPageState extends State<AgendaPage> {
       padding: const EdgeInsets.fromLTRB(18, 14, 18, 6),
       child: Row(
         children: [
-          IconButton(
-            tooltip: 'Visualização',
-            onPressed: () => _viewMenu(context),
-            icon: const Icon(Icons.menu_rounded),
+          Builder(
+            builder: (menuContext) => IconButton(
+              tooltip: 'Menu',
+              onPressed: () => Scaffold.of(menuContext).openDrawer(),
+              icon: const Icon(Icons.menu_rounded),
+            ),
           ),
           const SizedBox(width: 4),
           const Expanded(
@@ -719,7 +941,14 @@ class _AgendaPageState extends State<AgendaPage> {
           ),
           IconButton(
             tooltip: 'Pesquisar',
-            onPressed: () {},
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => SearchPage(
+                  store: widget.store,
+                  initialQuery: '',
+                ),
+              ),
+            ),
             icon: const Icon(Icons.search_rounded),
           ),
           IconButton(
@@ -872,57 +1101,64 @@ class _AgendaPageState extends State<AgendaPage> {
   }
 
   Widget _dayView(DateTime day) {
-    const timeColumnWidth = 60.0;
-    const scrollColumnWidth = 32.0;
+    const timeColumnWidth = 62.0;
+    const scrollColumnWidth = 30.0;
 
     return Stack(
       children: [
-        SingleChildScrollView(
-          controller: vertical,
-          physics: const NeverScrollableScrollPhysics(),
-          child: SizedBox(
-            height: 24 * hourHeight,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Coluna exclusiva dos horários.
-                SizedBox(
-                  width: timeColumnWidth,
-                  height: 24 * hourHeight,
-                  child: Column(
-                    children: List.generate(
-                      24,
-                      (h) => SizedBox(
-                        height: hourHeight,
-                        child: Align(
-                          alignment: Alignment.topCenter,
-                          child: Text(
-                            '${h.toString().padLeft(2, '0')}:00',
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              fontSize: 10,
-                              color: AppColors.muted,
+        Padding(
+          padding: const EdgeInsets.only(right: scrollColumnWidth),
+          child: Scrollbar(
+            controller: vertical,
+            thumbVisibility: true,
+            trackVisibility: true,
+            thickness: 7,
+            radius: const Radius.circular(8),
+            child: SingleChildScrollView(
+              controller: vertical,
+              physics: const ClampingScrollPhysics(),
+              child: SizedBox(
+                height: 24 * hourHeight,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Coluna exclusiva dos horários.
+                    SizedBox(
+                      width: timeColumnWidth,
+                      height: 24 * hourHeight,
+                      child: Column(
+                        children: List.generate(
+                          24,
+                          (h) => SizedBox(
+                            height: hourHeight,
+                            child: Align(
+                              alignment: Alignment.topCenter,
+                              child: Text(
+                                '${h.toString().padLeft(2, '0')}:00',
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  fontSize: 10,
+                                  color: AppColors.muted,
+                                ),
+                              ),
                             ),
                           ),
                         ),
                       ),
                     ),
-                  ),
-                ),
 
-                // Área dos agendamentos.
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.only(right: scrollColumnWidth),
-                    child: _timeline(day),
-                  ),
+                    // Área dos agendamentos.
+                    Expanded(
+                      child: _timeline(day),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
         ),
 
-        // Faixa livre exclusiva para rolagem.
+        // Faixa livre exclusiva para rolagem. Ela não toca nos agendamentos.
         Positioned(
           top: 0,
           right: 0,
@@ -930,12 +1166,11 @@ class _AgendaPageState extends State<AgendaPage> {
           width: scrollColumnWidth,
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
+            onVerticalDragStart: (_) {},
             onVerticalDragUpdate: (details) {
               if (!vertical.hasClients) return;
 
-              final target =
-                  vertical.offset - details.delta.dy;
-
+              final target = vertical.offset - details.delta.dy;
               vertical.jumpTo(
                 target.clamp(
                   0.0,
@@ -943,7 +1178,9 @@ class _AgendaPageState extends State<AgendaPage> {
                 ),
               );
             },
-            child: const SizedBox.expand(),
+            child: Container(
+              color: Colors.transparent,
+            ),
           ),
         ),
 
@@ -1140,9 +1377,10 @@ class _AgendaPageState extends State<AgendaPage> {
   Widget _appointmentCard(Appointment a, bool showLabels) {
     final minutes = a.start.hour * 60 + a.start.minute;
     final top = minutes / 60 * hourHeight;
-    final height = (a.duration / 60 * hourHeight).clamp(44.0, 24 * hourHeight);
-    final left = 4.0;
-    final right = 4.0;
+    final height =
+        (a.duration / 60 * hourHeight).clamp(44.0, 24 * hourHeight);
+    const left = 4.0;
+    const right = 4.0;
 
     return Positioned(
       top: top,
@@ -1151,30 +1389,44 @@ class _AgendaPageState extends State<AgendaPage> {
       height: height.toDouble(),
       child: GestureDetector(
         onTap: () => _showAppointmentDialog(context, existing: a),
-        onVerticalDragStart: (_) {
+
+        // Mover o agendamento agora exige segurar primeiro.
+        // Isso evita que uma rolagem acidental altere o horário.
+        onLongPressStart: (_) {
           dragOriginal = a.start;
           dragDelta = 0;
+          setState(() {});
         },
-        onVerticalDragUpdate: (details) {
-          dragDelta += details.delta.dy;
+        onLongPressMoveUpdate: (details) {
+          if (dragOriginal == null) return;
+
+          dragDelta = details.offsetFromOrigin.dy;
           final minutesDelta = (dragDelta / hourHeight * 60).round();
           final newStart = _snapTime(
             dragOriginal!.add(Duration(minutes: minutesDelta)),
           );
+
           final updated = _copyAppointment(a, start: newStart);
           widget.store.updateAppointment(updated);
         },
-        onVerticalDragEnd: (_) async {
+        onLongPressEnd: (_) async {
+          if (dragOriginal == null) return;
+
           dragOriginal = null;
           dragDelta = 0;
+
           final current = widget.store.appointments
               .where((x) => x.id == a.id)
               .cast<Appointment?>()
               .firstWhere((x) => x != null, orElse: () => null);
+
           if (current != null) {
             await widget.store.syncAppointment(current);
           }
+
+          if (mounted) setState(() {});
         },
+
         child: Container(
           margin: const EdgeInsets.symmetric(vertical: 2),
           decoration: BoxDecoration(
@@ -1221,11 +1473,13 @@ class _AgendaPageState extends State<AgendaPage> {
                   },
                 ),
               ),
+
+              // Alça inferior para aumentar/diminuir a duração.
               Positioned(
                 bottom: 0,
                 left: 0,
                 right: 0,
-                height: 12,
+                height: 14,
                 child: GestureDetector(
                   onVerticalDragStart: (_) {
                     resizing = a;
@@ -1233,12 +1487,14 @@ class _AgendaPageState extends State<AgendaPage> {
                   },
                   onVerticalDragUpdate: (details) {
                     if (resizing == null) return;
+
                     resizeDelta += details.delta.dy;
                     final minutesDelta =
                         (resizeDelta / hourHeight * 60).round();
                     final newDuration =
                         ((a.duration + minutesDelta) / 30).round() * 30;
                     final safe = newDuration.clamp(30, 8 * 60);
+
                     widget.store.updateAppointment(
                       _copyAppointment(a, duration: safe),
                     );
@@ -1246,10 +1502,12 @@ class _AgendaPageState extends State<AgendaPage> {
                   onVerticalDragEnd: (_) async {
                     resizing = null;
                     resizeDelta = 0;
+
                     final current = widget.store.appointments
                         .where((x) => x.id == a.id)
                         .cast<Appointment?>()
                         .firstWhere((x) => x != null, orElse: () => null);
+
                     if (current != null) {
                       await widget.store.syncAppointment(current);
                     }
@@ -1324,6 +1582,28 @@ class _AgendaPageState extends State<AgendaPage> {
             ),
           ),
         ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          child: Row(
+            children: ['SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB', 'DOM']
+                .map(
+                  (day) => Expanded(
+                    child: Center(
+                      child: Text(
+                        day,
+                        style: const TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.muted,
+                        ),
+                      ),
+                    ),
+                  ),
+                )
+                .toList(),
+          ),
+        ),
+        const SizedBox(height: 4),
         Expanded(
           child: GridView.builder(
             padding: const EdgeInsets.all(10),
@@ -1385,37 +1665,6 @@ class _AgendaPageState extends State<AgendaPage> {
           ),
         ),
       ],
-    );
-  }
-
-  void _viewMenu(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: AppColors.card,
-      showDragHandle: true,
-      builder: (_) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: CalendarView.values.map((v) {
-            final label = switch (v) {
-              CalendarView.day => 'Dia',
-              CalendarView.threeDays => 'Três dias',
-              CalendarView.week => 'Semana',
-              CalendarView.month => 'Mês',
-            };
-            return ListTile(
-              leading: Icon(
-                v == widget.view ? Icons.radio_button_checked : Icons.radio_button_off,
-              ),
-              title: Text(label),
-              onTap: () {
-                Navigator.pop(context);
-                widget.onView(v);
-              },
-            );
-          }).toList(),
-        ),
-      ),
     );
   }
 
@@ -1687,35 +1936,42 @@ class _SearchPageState extends State<SearchPage> {
     }).toList()
       ..sort((a, b) => a.start.compareTo(b.start));
 
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(18, 20, 18, 10),
-          child: TextField(
-            controller: controller,
-            autofocus: true,
-            onChanged: (v) => setState(() => query = v),
-            decoration: InputDecoration(
-              hintText: 'Pesquisar cliente ou serviço',
-              prefixIcon: const Icon(Icons.search),
-              suffixIcon: query.isEmpty
-                  ? null
-                  : IconButton(
-                      onPressed: () {
-                        controller.clear();
-                        setState(() => query = '');
-                      },
-                      icon: const Icon(Icons.close),
-                    ),
-              filled: true,
-              fillColor: AppColors.card,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide.none,
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      appBar: AppBar(
+        title: const Text('Pesquisar'),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+      ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 8, 18, 10),
+            child: TextField(
+              controller: controller,
+              autofocus: true,
+              onChanged: (v) => setState(() => query = v),
+              decoration: InputDecoration(
+                hintText: 'Pesquisar cliente ou serviço',
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: query.isEmpty
+                    ? null
+                    : IconButton(
+                        onPressed: () {
+                          controller.clear();
+                          setState(() => query = '');
+                        },
+                        icon: const Icon(Icons.close),
+                      ),
+                filled: true,
+                fillColor: AppColors.card,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: BorderSide.none,
+                ),
               ),
             ),
           ),
-        ),
         Expanded(
           child: results.isEmpty
               ? const Center(
@@ -1752,6 +2008,7 @@ class _SearchPageState extends State<SearchPage> {
                 ),
         ),
       ],
+      ),
     );
   }
 }
