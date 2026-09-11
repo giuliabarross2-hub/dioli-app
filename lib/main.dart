@@ -428,7 +428,7 @@ class AppStore extends ChangeNotifier {
         );
         appointments.addAll(remote);
       } catch (e) {
-        print('ERRO SINCRONIZANDO ${_professionalName(professional)}: $e');
+        print('ERRO SINCRONIZANDO ${professional == Professional.tuani ? 'TUANI' : 'GIULIA'}: $e');
       }
     }
 
