@@ -870,7 +870,7 @@ class AgendaPage extends StatefulWidget {
 
 class _AgendaPageState extends State<AgendaPage> {
   final ScrollController vertical = ScrollController();
-  final double hourHeight = 96;
+  final double hourHeight = 72;
   DateTime? dragOriginal;
   double dragDelta = 0;
   Appointment? resizing;
@@ -925,6 +925,42 @@ class _AgendaPageState extends State<AgendaPage> {
 
   void _moveDate(int days) {
     widget.onDate(widget.selectedDate.add(Duration(days: days)));
+  }
+
+  void _moveCalendarPeriod(int direction) {
+    if (widget.view == CalendarView.month) {
+      final current = widget.selectedDate;
+      final targetMonth = DateTime(current.year, current.month + direction, 1);
+      final lastDay = DateTime(targetMonth.year, targetMonth.month + 1, 0).day;
+      final safeDay = current.day.clamp(1, lastDay);
+      widget.onDate(DateTime(targetMonth.year, targetMonth.month, safeDay));
+      return;
+    }
+
+    if (widget.view == CalendarView.week) {
+      widget.onDate(widget.selectedDate.add(Duration(days: 7 * direction)));
+      return;
+    }
+
+    if (widget.view == CalendarView.threeDays) {
+      widget.onDate(widget.selectedDate.add(Duration(days: 3 * direction)));
+    }
+  }
+
+  Widget _periodSwipe(Widget child) {
+    if (widget.view == CalendarView.day) return child;
+
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onHorizontalDragEnd: (details) {
+        final velocity = details.primaryVelocity ?? 0;
+        if (velocity.abs() < 180) return;
+
+        // Arrastar para a esquerda avança; para a direita volta.
+        _moveCalendarPeriod(velocity < 0 ? 1 : -1);
+      },
+      child: child,
+    );
   }
 
   @override
@@ -1103,44 +1139,146 @@ class _AgendaPageState extends State<AgendaPage> {
 
     if (days.length == 1) return _dayView(days.first);
 
-    return Scrollbar(
-      controller: vertical,
-      thumbVisibility: true,
-      trackVisibility: true,
-      thickness: 7,
-      radius: const Radius.circular(8),
-      child: SingleChildScrollView(
-        controller: vertical,
-        physics: const NeverScrollableScrollPhysics(),
-        child: Column(
+    const scrollColumnWidth = 30.0;
+
+    return _periodSwipe(
+      Stack(
         children: [
-          Row(
-            children: days
-                .map((d) => Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.all(4),
-                        child: Text(
-                          DateFormat('EEE\n dd/MM', 'pt_BR').format(d),
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.muted,
-                          ),
-                        ),
-                      ),
-                    ))
-                .toList(),
-          ),
-          SizedBox(
-            height: 24 * hourHeight,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: days.map((d) => Expanded(child: _timeline(d))).toList(),
+          Padding(
+            padding: const EdgeInsets.only(right: scrollColumnWidth),
+            child: SingleChildScrollView(
+              controller: vertical,
+              physics: const NeverScrollableScrollPhysics(),
+              child: Column(
+                children: [
+                  Row(
+                    children: days
+                        .map((d) => Expanded(
+                              child: Padding(
+                                padding: const EdgeInsets.all(4),
+                                child: Text(
+                                  DateFormat('EEE\n dd/MM', 'pt_BR').format(d),
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppColors.muted,
+                                  ),
+                                ),
+                              ),
+                            ))
+                        .toList(),
+                  ),
+                  SizedBox(
+                    height: 24 * hourHeight,
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children:
+                          days.map((d) => Expanded(child: _timeline(d))).toList(),
+                    ),
+                  ),
+                ],
+              ),
             ),
+          ),
+          _buildSideScrollStrip(
+            controller: vertical,
+            width: scrollColumnWidth,
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildSideScrollStrip({
+    required ScrollController controller,
+    double width = 30,
+  }) {
+    return Positioned(
+      top: 0,
+      right: 0,
+      bottom: 0,
+      width: width,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return AnimatedBuilder(
+            animation: controller,
+            builder: (context, _) {
+              final hasClients = controller.hasClients;
+              final maxScroll =
+                  hasClients ? controller.position.maxScrollExtent : 0.0;
+              final viewport = hasClients
+                  ? controller.position.viewportDimension
+                  : constraints.maxHeight;
+              final content = viewport + maxScroll;
+              final thumbHeight = content > 0
+                  ? (constraints.maxHeight * viewport / content)
+                      .clamp(40.0, constraints.maxHeight)
+                  : constraints.maxHeight;
+              final travel =
+                  (constraints.maxHeight - thumbHeight).clamp(0.0, double.infinity);
+              final thumbTop = maxScroll > 0 && travel > 0
+                  ? (controller.offset / maxScroll * travel).clamp(0.0, travel)
+                  : 0.0;
+
+              void scrollTo(double localDy) {
+                if (!controller.hasClients || maxScroll <= 0 || travel <= 0) {
+                  return;
+                }
+                final target =
+                    ((localDy - thumbHeight / 2) / travel * maxScroll)
+                        .clamp(0.0, maxScroll);
+                controller.jumpTo(target);
+              }
+
+              return GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onVerticalDragStart: (details) =>
+                    scrollTo(details.localPosition.dy),
+                onVerticalDragUpdate: (details) {
+                  if (!controller.hasClients ||
+                      maxScroll <= 0 ||
+                      travel <= 0) {
+                    return;
+                  }
+                  final target = controller.offset +
+                      details.delta.dy / travel * maxScroll;
+                  controller.jumpTo(target.clamp(0.0, maxScroll));
+                },
+                onTapDown: (details) => scrollTo(details.localPosition.dy),
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                      child: Align(
+                        alignment: Alignment.centerRight,
+                        child: Container(
+                          width: 3,
+                          margin: const EdgeInsets.symmetric(vertical: 8),
+                          decoration: BoxDecoration(
+                            color: AppColors.line,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      top: thumbTop + 8,
+                      right: 5,
+                      child: Container(
+                        width: 9,
+                        height: (thumbHeight - 16).clamp(24.0, thumbHeight),
+                        decoration: BoxDecoration(
+                          color: AppColors.muted.withOpacity(.75),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          );
+        },
       ),
     );
   }
@@ -1306,7 +1444,7 @@ class _AgendaPageState extends State<AgendaPage> {
               right: 0,
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                onPanStart: (details) {
+                onVerticalDragStart: (details) {
                   final start = _timeFromOffset(
                     day,
                     details.localPosition.dy,
@@ -1321,7 +1459,7 @@ class _AgendaPageState extends State<AgendaPage> {
                     );
                   });
                 },
-                onPanUpdate: (details) {
+                onVerticalDragUpdate: (details) {
                   if (dragOriginal == null) return;
 
                   dragDelta += details.delta.dy;
@@ -1350,7 +1488,7 @@ class _AgendaPageState extends State<AgendaPage> {
                     creatingEnd = end;
                   });
                 },
-                onPanEnd: (_) {
+                onVerticalDragEnd: (_) {
                   if (dragOriginal == null) return;
 
                   final start = creatingStart ?? dragOriginal!;
@@ -1652,111 +1790,168 @@ class _AgendaPageState extends State<AgendaPage> {
     final daysInMonth =
         DateTime(widget.selectedDate.year, widget.selectedDate.month + 1, 0).day;
     final startOffset = first.weekday - 1;
-    final cells = startOffset + daysInMonth;
+    final totalCells = ((startOffset + daysInMonth + 6) ~/ 7) * 7;
+    final weeks = totalCells ~/ 7;
+    final weekdays = ['SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB', 'DOM'];
 
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.all(14),
-          child: Text(
-            DateFormat('MMMM yyyy', 'pt_BR').format(widget.selectedDate).toUpperCase(),
-            style: const TextStyle(
-              fontSize: 17,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          child: Row(
-            children: ['SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB', 'DOM']
-                .map(
-                  (day) => Expanded(
-                    child: Center(
-                      child: Text(
-                        day,
-                        style: const TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.muted,
-                        ),
-                      ),
-                    ),
-                  ),
-                )
-                .toList(),
-          ),
-        ),
-        const SizedBox(height: 4),
-        Expanded(
-          child: Scrollbar(
-            controller: monthScroll,
-            thumbVisibility: true,
-            trackVisibility: true,
-            thickness: 7,
-            radius: const Radius.circular(8),
-            child: GridView.builder(
-              controller: monthScroll,
-              padding: const EdgeInsets.all(10),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 7,
-              childAspectRatio: .82,
-            ),
-            itemCount: cells,
-            itemBuilder: (context, i) {
-              if (i < startOffset) return const SizedBox();
-              final day = i - startOffset + 1;
-              final date = DateTime(
-                widget.selectedDate.year,
-                widget.selectedDate.month,
-                day,
-              );
-              final count = widget.store.appointments.where((a) {
-                return _sameDay(a.start, date) &&
-                    (widget.professional == Professional.all ||
-                        a.professional == widget.professional);
-              }).length;
-              final selected = _sameDay(date, widget.selectedDate);
-              return GestureDetector(
-                onTap: () {
-                  widget.onDate(date);
-                  widget.onView(CalendarView.day);
-                },
-                child: Container(
-                  margin: const EdgeInsets.all(3),
-                  decoration: BoxDecoration(
-                    color: selected ? AppColors.text.withOpacity(.08) : AppColors.card,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                      color: selected ? AppColors.text : AppColors.line,
-                    ),
-                  ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        '$day',
-                        style: const TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                      if (count > 0) ...[
-                        const SizedBox(height: 5),
-                        Text(
-                          '$count ag.',
+    List<Appointment> appointmentsFor(DateTime date) {
+      return widget.store.appointments.where((a) {
+        return _sameDay(a.start, date) &&
+            (widget.professional == Professional.all ||
+                a.professional == widget.professional);
+      }).toList()
+        ..sort((a, b) => a.start.compareTo(b.start));
+    }
+
+    return _periodSwipe(
+      LayoutBuilder(
+        builder: (context, constraints) {
+          final headerHeight = 54.0;
+          final double gridHeight =
+              (constraints.maxHeight - headerHeight).clamp(0.0, double.infinity).toDouble();
+          final double rowHeight =
+              (gridHeight / weeks).clamp(74.0, 130.0).toDouble();
+
+          return Column(
+            children: [
+              SizedBox(
+                height: headerHeight,
+                child: Row(
+                  children: weekdays.map((day) {
+                    return Expanded(
+                      child: Center(
+                        child: Text(
+                          day,
                           style: const TextStyle(
-                            fontSize: 9,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
                             color: AppColors.muted,
                           ),
                         ),
-                      ],
-                    ],
-                  ),
+                      ),
+                    );
+                  }).toList(),
                 ),
-              );
-            },
-            ),
-          ),
-        ),
-      ],
+              ),
+              Expanded(
+                child: GridView.builder(
+                  controller: monthScroll,
+                  physics: const NeverScrollableScrollPhysics(),
+                  padding: EdgeInsets.zero,
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 7,
+                    childAspectRatio: constraints.maxWidth / rowHeight / 7,
+                  ),
+                  itemCount: totalCells,
+                  itemBuilder: (context, i) {
+                    final dayNumber = i - startOffset + 1;
+                    if (dayNumber < 1 || dayNumber > daysInMonth) {
+                      return const SizedBox();
+                    }
+
+                    final date = DateTime(
+                      widget.selectedDate.year,
+                      widget.selectedDate.month,
+                      dayNumber,
+                    );
+                    final selected = _sameDay(date, widget.selectedDate);
+                    final appointments = appointmentsFor(date);
+                    final visible = appointments.take(3).toList();
+                    final remaining = appointments.length - visible.length;
+                    final isToday = _sameDay(date, DateTime.now());
+
+                    return GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () {
+                        widget.onDate(date);
+                        widget.onView(CalendarView.day);
+                      },
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: selected
+                              ? AppColors.text.withOpacity(.045)
+                              : Colors.transparent,
+                          border: Border(
+                            top: BorderSide(color: AppColors.line.withOpacity(.75)),
+                            right: BorderSide(color: AppColors.line.withOpacity(.45)),
+                          ),
+                        ),
+                        padding: const EdgeInsets.fromLTRB(4, 4, 3, 3),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Align(
+                              alignment: Alignment.topCenter,
+                              child: Container(
+                                width: 30,
+                                height: 30,
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(
+                                  color: isToday ? AppColors.red : Colors.transparent,
+                                  shape: BoxShape.circle,
+                                ),
+                                child: Text(
+                                  '$dayNumber',
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w800,
+                                    color: isToday ? Colors.white : AppColors.text,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            ...visible.map((a) {
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 2),
+                                child: GestureDetector(
+                                  onTap: () => _showAppointmentDetails(context, a),
+                                  child: Container(
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+                                    decoration: BoxDecoration(
+                                      color: a.color.withOpacity(.18),
+                                      borderRadius: BorderRadius.circular(5),
+                                    ),
+                                    child: Text(
+                                      a.client,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontSize: 8.5,
+                                        fontWeight: FontWeight.w700,
+                                        color: a.color.computeLuminance() > .65
+                                            ? AppColors.text
+                                            : a.color.withOpacity(.95),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }),
+                            if (remaining > 0)
+                              Padding(
+                                padding: const EdgeInsets.only(left: 4, top: 1),
+                                child: Text(
+                                  '+$remaining',
+                                  style: const TextStyle(
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppColors.muted,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 
