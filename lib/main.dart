@@ -1118,6 +1118,36 @@ class _AgendaPageState extends State<AgendaPage> {
     );
   }
 
+  void _moveVisiblePeriod(int direction) {
+    switch (widget.view) {
+      case CalendarView.day:
+        widget.onDate(widget.selectedDate.add(Duration(days: direction)));
+        break;
+      case CalendarView.threeDays:
+        widget.onDate(widget.selectedDate.add(Duration(days: 3 * direction)));
+        break;
+      case CalendarView.week:
+        widget.onDate(widget.selectedDate.add(Duration(days: 7 * direction)));
+        break;
+      case CalendarView.month:
+        final current = widget.selectedDate;
+        widget.onDate(DateTime(current.year, current.month + direction, 1));
+        break;
+    }
+  }
+
+  Widget _horizontalPeriodSwipe(Widget child) {
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onHorizontalDragEnd: (details) {
+        final velocity = details.primaryVelocity ?? 0;
+        if (velocity.abs() < 220) return;
+        _moveVisiblePeriod(velocity < 0 ? 1 : -1);
+      },
+      child: child,
+    );
+  }
+
   Widget _calendar() {
     if (widget.view == CalendarView.month) {
       return _monthView();
@@ -1136,9 +1166,12 @@ class _AgendaPageState extends State<AgendaPage> {
                     .add(Duration(days: i)),
               );
 
-    if (days.length == 1) return _dayView(days.first);
+    if (days.length == 1) {
+      return _horizontalPeriodSwipe(_dayView(days.first));
+    }
 
-    return Scrollbar(
+    return _horizontalPeriodSwipe(
+      Scrollbar(
       controller: vertical,
       thumbVisibility: true,
       trackVisibility: true,
@@ -1183,6 +1216,7 @@ class _AgendaPageState extends State<AgendaPage> {
         ],
       ),
       ),
+    ),
     );
   }
 
@@ -1309,7 +1343,7 @@ class _AgendaPageState extends State<AgendaPage> {
               right: 0,
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                onPanStart: (details) {
+                onVerticalDragStart: (details) {
                   final start = _timeFromOffset(
                     day,
                     details.localPosition.dy,
@@ -1324,7 +1358,7 @@ class _AgendaPageState extends State<AgendaPage> {
                     );
                   });
                 },
-                onPanUpdate: (details) {
+                onVerticalDragUpdate: (details) {
                   if (dragOriginal == null) return;
 
                   dragDelta += details.delta.dy;
@@ -1353,7 +1387,7 @@ class _AgendaPageState extends State<AgendaPage> {
                     creatingEnd = end;
                   });
                 },
-                onPanEnd: (_) {
+                onVerticalDragEnd: (_) {
                   if (dragOriginal == null) return;
 
                   final start = creatingStart ?? dragOriginal!;
@@ -1378,6 +1412,15 @@ class _AgendaPageState extends State<AgendaPage> {
                     initialStart: start,
                     initialDuration: duration,
                   );
+                },
+                onVerticalDragCancel: () {
+                  if (dragOriginal == null && creatingStart == null) return;
+                  setState(() {
+                    dragOriginal = null;
+                    dragDelta = 0;
+                    creatingStart = null;
+                    creatingEnd = null;
+                  });
                 },
               ),
             ),
