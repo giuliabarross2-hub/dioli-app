@@ -1101,6 +1101,7 @@ class _AgendaPageState extends State<AgendaPage> {
       radius: const Radius.circular(8),
       child: SingleChildScrollView(
         controller: vertical,
+        physics: const NeverScrollableScrollPhysics(),
         child: Column(
         children: [
           Row(
@@ -1150,7 +1151,9 @@ class _AgendaPageState extends State<AgendaPage> {
             radius: const Radius.circular(8),
             child: SingleChildScrollView(
               controller: vertical,
-              physics: const ClampingScrollPhysics(),
+              // A faixa estreita da direita é a área dedicada à rolagem.
+              // Assim o arrastar no calendário fica livre para criar/mover agendamentos.
+              physics: const NeverScrollableScrollPhysics(),
               child: SizedBox(
                 height: 24 * hourHeight,
                 child: Row(
@@ -1969,6 +1972,7 @@ class _AgendaPageState extends State<AgendaPage> {
             Future<void> pickDate() async {
               final d = await showDatePicker(
                 context: context,
+                useRootNavigator: true,
                 locale: const Locale('pt', 'BR'),
                 initialDate: start,
                 firstDate: DateTime(2020),
@@ -2292,11 +2296,13 @@ class _SearchPageState extends State<SearchPage> {
 
   @override
   Widget build(BuildContext context) {
-    final results = widget.store.appointments.where((a) {
-      final q = query.toLowerCase().trim();
-      return a.client.toLowerCase().contains(q) ||
-          a.observation.toLowerCase().contains(q);
-    }).toList()
+    final q = query.toLowerCase().trim();
+    final results = q.isEmpty
+        ? <Appointment>[]
+        : widget.store.appointments.where((a) {
+            return a.client.toLowerCase().contains(q) ||
+                a.observation.toLowerCase().contains(q);
+          }).toList()
       ..sort((a, b) {
         final now = DateTime.now();
         final aFuture = !a.start.isBefore(now);
@@ -2348,13 +2354,21 @@ class _SearchPageState extends State<SearchPage> {
             ),
           ),
         Expanded(
-          child: results.isEmpty
+          child: query.trim().isEmpty
               ? const Center(
                   child: Text(
-                    'Nenhum agendamento encontrado.',
+                    'Digite o nome da cliente ou uma informação para pesquisar.',
+                    textAlign: TextAlign.center,
                     style: TextStyle(color: AppColors.muted),
                   ),
                 )
+              : results.isEmpty
+                  ? const Center(
+                      child: Text(
+                        'Nenhum agendamento encontrado.',
+                        style: TextStyle(color: AppColors.muted),
+                      ),
+                    )
               : ListView.separated(
                   padding: const EdgeInsets.all(16),
                   itemCount: results.length,
