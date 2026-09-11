@@ -224,8 +224,10 @@ class DioliCalendarBackend {
     );
 
     final res = await http.get(uri, headers: _headers);
+    print('GOOGLE AGENDA STATUS: ${res.statusCode}');
+    print('GOOGLE AGENDA RESPOSTA: ${res.body}');
     if (res.statusCode < 200 || res.statusCode >= 300) {
-      throw Exception('Erro ao buscar Google Agenda: ${res.body}');
+      throw Exception('Erro ao buscar Google Agenda: ${res.statusCode} ${res.body}');
     }
 
     final data = jsonDecode(res.body) as Map<String, dynamic>;
@@ -425,8 +427,8 @@ class AppStore extends ChangeNotifier {
               a.googleEventId != null,
         );
         appointments.addAll(remote);
-      } catch (_) {
-        // Mantém o cache local se o Google estiver temporariamente indisponível.
+      } catch (e) {
+        print('ERRO SINCRONIZANDO ${_professionalName(professional)}: $e');
       }
     }
 
