@@ -1514,7 +1514,7 @@ class _AgendaPageState extends State<AgendaPage> {
           LongPressGestureRecognizer:
               GestureRecognizerFactoryWithHandlers<LongPressGestureRecognizer>(
             () => LongPressGestureRecognizer(
-              duration: const Duration(milliseconds: 250),
+              duration: const Duration(milliseconds: 180),
             ),
             (LongPressGestureRecognizer recognizer) {
               recognizer.onLongPressStart = (_) {
