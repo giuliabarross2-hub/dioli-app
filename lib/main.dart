@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/gestures.dart';
 import 'package:intl/intl.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -1501,46 +1502,58 @@ class _AgendaPageState extends State<AgendaPage> {
       left: left,
       right: right,
       height: height.toDouble(),
-      child: GestureDetector(
-        onTap: () => _showAppointmentDetails(context, a),
+      child: RawGestureDetector(
+        gestures: <Type, GestureRecognizerFactory>{
+          TapGestureRecognizer:
+              GestureRecognizerFactoryWithHandlers<TapGestureRecognizer>(
+            () => TapGestureRecognizer(),
+            (TapGestureRecognizer recognizer) {
+              recognizer.onTap = () => _showAppointmentDetails(context, a);
+            },
+          ),
+          LongPressGestureRecognizer:
+              GestureRecognizerFactoryWithHandlers<LongPressGestureRecognizer>(
+            () => LongPressGestureRecognizer(
+              duration: const Duration(milliseconds: 250),
+            ),
+            (LongPressGestureRecognizer recognizer) {
+              recognizer.onLongPressStart = (_) {
+                dragOriginal = a.start;
+                dragDelta = 0;
+                setState(() {});
+              };
+              recognizer.onLongPressMoveUpdate = (details) {
+                if (dragOriginal == null) return;
 
-        // Mover o agendamento agora exige segurar primeiro.
-        // Isso evita que uma rolagem acidental altere o horário.
-        onLongPressStart: (_) {
-          dragOriginal = a.start;
-          dragDelta = 0;
-          setState(() {});
+                dragDelta = details.offsetFromOrigin.dy;
+                final minutesDelta = (dragDelta / hourHeight * 60).round();
+                final newStart = _snapTime(
+                  dragOriginal!.add(Duration(minutes: minutesDelta)),
+                );
+
+                final updated = _copyAppointment(a, start: newStart);
+                widget.store.updateAppointment(updated);
+              };
+              recognizer.onLongPressEnd = (_) async {
+                if (dragOriginal == null) return;
+
+                dragOriginal = null;
+                dragDelta = 0;
+
+                final current = widget.store.appointments
+                    .where((x) => x.id == a.id)
+                    .cast<Appointment?>()
+                    .firstWhere((x) => x != null, orElse: () => null);
+
+                if (current != null) {
+                  await widget.store.syncAppointment(current);
+                }
+
+                if (mounted) setState(() {});
+              };
+            },
+          ),
         },
-        onLongPressMoveUpdate: (details) {
-          if (dragOriginal == null) return;
-
-          dragDelta = details.offsetFromOrigin.dy;
-          final minutesDelta = (dragDelta / hourHeight * 60).round();
-          final newStart = _snapTime(
-            dragOriginal!.add(Duration(minutes: minutesDelta)),
-          );
-
-          final updated = _copyAppointment(a, start: newStart);
-          widget.store.updateAppointment(updated);
-        },
-        onLongPressEnd: (_) async {
-          if (dragOriginal == null) return;
-
-          dragOriginal = null;
-          dragDelta = 0;
-
-          final current = widget.store.appointments
-              .where((x) => x.id == a.id)
-              .cast<Appointment?>()
-              .firstWhere((x) => x != null, orElse: () => null);
-
-          if (current != null) {
-            await widget.store.syncAppointment(current);
-          }
-
-          if (mounted) setState(() {});
-        },
-
         child: Container(
           margin: const EdgeInsets.symmetric(vertical: 2),
           decoration: BoxDecoration(
