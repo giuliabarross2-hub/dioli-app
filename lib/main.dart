@@ -1511,21 +1511,22 @@ class _AgendaPageState extends State<AgendaPage> {
               recognizer.onTap = () => _showAppointmentDetails(context, a);
             },
           ),
-          LongPressGestureRecognizer:
-              GestureRecognizerFactoryWithHandlers<LongPressGestureRecognizer>(
-            () => LongPressGestureRecognizer(
-              duration: const Duration(milliseconds: 80),
-            ),
-            (LongPressGestureRecognizer recognizer) {
-              recognizer.onLongPressStart = (_) {
+          VerticalDragGestureRecognizer:
+              GestureRecognizerFactoryWithHandlers<VerticalDragGestureRecognizer>(
+            () => VerticalDragGestureRecognizer(),
+            (VerticalDragGestureRecognizer recognizer) {
+              // Igual ao Google Agenda: ao começar a arrastar um compromisso,
+              // ele acompanha o dedo imediatamente, sem esperar long press.
+              // Um toque sem arrastar continua abrindo os detalhes normalmente.
+              recognizer.onStart = (_) {
                 dragOriginal = a.start;
                 dragDelta = 0;
                 setState(() {});
               };
-              recognizer.onLongPressMoveUpdate = (details) {
+              recognizer.onUpdate = (details) {
                 if (dragOriginal == null) return;
 
-                dragDelta = details.offsetFromOrigin.dy;
+                dragDelta += details.primaryDelta ?? 0;
                 final minutesDelta = (dragDelta / hourHeight * 60).round();
                 final newStart = _snapTime(
                   dragOriginal!.add(Duration(minutes: minutesDelta)),
@@ -1534,7 +1535,7 @@ class _AgendaPageState extends State<AgendaPage> {
                 final updated = _copyAppointment(a, start: newStart);
                 widget.store.updateAppointment(updated);
               };
-              recognizer.onLongPressEnd = (_) async {
+              recognizer.onEnd = (_) async {
                 if (dragOriginal == null) return;
 
                 dragOriginal = null;
@@ -1549,6 +1550,11 @@ class _AgendaPageState extends State<AgendaPage> {
                   await widget.store.syncAppointment(current);
                 }
 
+                if (mounted) setState(() {});
+              };
+              recognizer.onCancel = () {
+                dragOriginal = null;
+                dragDelta = 0;
                 if (mounted) setState(() {});
               };
             },
@@ -2102,6 +2108,8 @@ class _AgendaPageState extends State<AgendaPage> {
       builder: (sheetContext) {
         return StatefulBuilder(
           builder: (context, setLocal) {
+            bool saving = false;
+
             Future<void> pickDate() async {
               final d = await showDatePicker(
                 context: context,
@@ -2336,8 +2344,12 @@ class _AgendaPageState extends State<AgendaPage> {
                                         backgroundColor: AppColors.text,
                                         padding: const EdgeInsets.symmetric(vertical: 15),
                                       ),
-                                      onPressed: () async {
+                                      onPressed: saving
+                                          ? null
+                                          : () async {
+                                        setLocal(() => saving = true);
                                         if (!end.isAfter(start)) {
+                                          setLocal(() => saving = false);
                                           ScaffoldMessenger.of(context).showSnackBar(
                                             const SnackBar(
                                               content: Text('A hora de término deve ser depois da hora de início.'),
@@ -2345,7 +2357,8 @@ class _AgendaPageState extends State<AgendaPage> {
                                           );
                                           return;
                                         }
-                                        final total = double.tryParse(price.text.replaceAll(',', '.')) ?? 0;
+                                        try {
+                                          final total = double.tryParse(price.text.replaceAll(',', '.')) ?? 0;
                                         final sig = signalPaid
                                             ? (double.tryParse(signal.text.replaceAll(',', '.')) ?? 0)
                                             : 0;
@@ -2371,11 +2384,16 @@ class _AgendaPageState extends State<AgendaPage> {
                                           await widget.store.updateAppointment(a);
                                           await widget.store.syncAppointment(a);
                                         }
-                                        if (context.mounted) {
-                                          Navigator.pop(sheetContext, true);
+                                          if (context.mounted) {
+                                            Navigator.pop(sheetContext, true);
+                                          }
+                                        } finally {
+                                          if (context.mounted) {
+                                            setLocal(() => saving = false);
+                                          }
                                         }
                                       },
-                                      child: const Text('Salvar'),
+                                      child: Text(saving ? 'Salvando…' : 'Salvar'),
                                     ),
                                   ),
                                 ],
