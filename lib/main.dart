@@ -1530,6 +1530,10 @@ class _AgendaPageState extends State<AgendaPage> {
               GestureRecognizerFactoryWithHandlers<PanGestureRecognizer>(
             () => PanGestureRecognizer(),
             (PanGestureRecognizer recognizer) {
+              // O cartão inteiro é a área de arraste. Não existe alça de redimensionamento:
+              // qualquer ponto do agendamento pode ser pressionado e arrastado para mudar
+              // somente a posição/horário.
+              recognizer.dragStartBehavior = DragStartBehavior.start;
               // O gesto é reconhecido assim que o dedo começa a se mover.
               // Durante o arraste usamos apenas um preview local para que o
               // card acompanhe o dedo sem salvar a cada pixel movimentado.
@@ -1901,12 +1905,6 @@ class _AgendaPageState extends State<AgendaPage> {
                       'Sinal',
                       'R\$ ${a.signal.toStringAsFixed(2).replaceAll('.', ',')}',
                     ),
-                  if (a.observation.trim().isNotEmpty)
-                    _detailRow(
-                      Icons.notes_outlined,
-                      'Observação',
-                      a.observation.trim(),
-                    ),
                   const Spacer(),
                   SizedBox(
                     width: double.infinity,
@@ -2038,7 +2036,6 @@ class _AgendaPageState extends State<AgendaPage> {
     int? initialDuration,
   }) async {
     final client = TextEditingController(text: existing?.client ?? '');
-    final obs = TextEditingController(text: existing?.observation ?? '');
     final price = TextEditingController(
       text: existing == null ? '' : existing.price.toStringAsFixed(2),
     );
@@ -2273,14 +2270,6 @@ class _AgendaPageState extends State<AgendaPage> {
                                 }).toList(),
                               ),
                               const SizedBox(height: 18),
-                              TextField(
-                                controller: obs,
-                                maxLines: 4,
-                                decoration: const InputDecoration(
-                                  labelText: 'Observação',
-                                  alignLabelWithHint: true,
-                                ),
-                              ),
                               const SizedBox(height: 22),
                               Row(
                                 children: [
@@ -2330,14 +2319,14 @@ class _AgendaPageState extends State<AgendaPage> {
                                           id: existing?.id ?? DateTime.now().microsecondsSinceEpoch.toString(),
                                           client: client.text.trim(),
                                           service: existing?.service ?? '',
-                                          professional: pro,
+                                          professional: existing?.professional ?? Professional.giulia,
                                           start: start,
                                           duration: duration.clamp(5, 24 * 60),
                                           price: total,
                                           signal: sig.toDouble(),
                                           paymentMethod: signalPaid ? payment : '',
                                           color: color,
-                                          observation: obs.text.trim(),
+                                          observation: existing?.observation ?? '',
                                           status: existing?.status ?? 'Agendado',
                                         );
                                         if (existing == null) {
@@ -2580,7 +2569,6 @@ class ServicesPage extends StatelessWidget {
     final price = TextEditingController(
       text: existing == null ? '' : existing.price.toStringAsFixed(2),
     );
-    Professional pro = existing?.professional ?? Professional.giulia;
 
     await showDialog(
       context: context,
@@ -2604,22 +2592,6 @@ class ServicesPage extends StatelessWidget {
                   controller: price,
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
                   decoration: const InputDecoration(labelText: 'Preço', prefixText: 'R\$ '),
-                ),
-                const SizedBox(height: 8),
-                DropdownButtonFormField<Professional>(
-                  value: pro,
-                  decoration: const InputDecoration(labelText: 'Profissional'),
-                  items: const [
-                    DropdownMenuItem(
-                      value: Professional.giulia,
-                      child: Text('GIULIA'),
-                    ),
-                    DropdownMenuItem(
-                      value: Professional.tuani,
-                      child: Text('TUANI'),
-                    ),
-                  ],
-                  onChanged: (p) => setLocal(() => pro = p ?? Professional.giulia),
                 ),
               ],
             ),
@@ -2645,7 +2617,7 @@ class ServicesPage extends StatelessWidget {
                   name: name.text.trim(),
                   duration: int.tryParse(duration.text) ?? 30,
                   price: double.tryParse(price.text.replaceAll(',', '.')) ?? 0,
-                  professional: pro,
+                  professional: existing?.professional ?? Professional.giulia,
                 );
                 if (existing == null) {
                   await store.addService(s);
