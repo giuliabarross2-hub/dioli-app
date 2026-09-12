@@ -1699,50 +1699,56 @@ class _AgendaPageState extends State<AgendaPage> {
       right: right,
       height: height.toDouble(),
       child: GestureDetector(
-        dragStartBehavior: DragStartBehavior.down,
         behavior: HitTestBehavior.opaque,
-        // Um toque simples abre os detalhes.
         onTap: () => _showAppointmentDetails(context, a),
-        // O agendamento inteiro pode ser arrastado. Não há alça de redimensionamento.
-        // O primeiro movimento vertical já inicia o deslocamento; não usamos
-        // onLongPress, para não criar um atraso perceptível.
-        onVerticalDragStart: (_) {
-          dragOriginal = a.start;
-          dragDelta = 0;
-          draggingAppointmentId = a.id;
-          draggingPreviewStart = a.start;
-          setState(() {});
-        },
-        onVerticalDragUpdate: (details) {
-          if (dragOriginal == null || draggingAppointmentId != a.id) return;
+        child: RawGestureDetector(
+          behavior: HitTestBehavior.opaque,
+        gestures: {
+          LongPressGestureRecognizer: GestureRecognizerFactoryWithHandlers<
+              LongPressGestureRecognizer>(
+            () => LongPressGestureRecognizer(
+              duration: const Duration(milliseconds: 120),
+            ),
+            (recognizer) {
+              recognizer.onLongPressStart = (_) {
+                dragOriginal = a.start;
+                dragDelta = 0;
+                draggingAppointmentId = a.id;
+                draggingPreviewStart = a.start;
+                setState(() {});
+              };
+              recognizer.onLongPressMoveUpdate = (details) {
+                if (dragOriginal == null || draggingAppointmentId != a.id) return;
 
-          dragDelta += details.delta.dy;
-          final minutesDelta = (dragDelta / hourHeight * 60).round();
-          final newStart = _snapTime(
-            dragOriginal!.add(Duration(minutes: minutesDelta)),
-          );
+                dragDelta = details.offsetFromOrigin.dy;
+                final minutesDelta = (dragDelta / hourHeight * 60).round();
+                final newStart = _snapTime(
+                  dragOriginal!.add(Duration(minutes: minutesDelta)),
+                );
 
-          if (newStart == draggingPreviewStart) return;
-          setState(() {
-            draggingPreviewStart = newStart;
-          });
-        },
-        onVerticalDragEnd: (_) async {
-          if (dragOriginal == null || draggingAppointmentId != a.id) return;
+                if (newStart == draggingPreviewStart) return;
+                setState(() {
+                  draggingPreviewStart = newStart;
+                });
+              };
+              recognizer.onLongPressEnd = (_) async {
+                if (dragOriginal == null || draggingAppointmentId != a.id) return;
 
-          final finalStart = draggingPreviewStart ?? dragOriginal!;
-          final updated = _copyAppointment(a, start: finalStart);
+                final finalStart = draggingPreviewStart ?? dragOriginal!;
+                final updated = _copyAppointment(a, start: finalStart);
 
-          // Limpa a prévia imediatamente; persiste somente uma vez ao soltar.
-          dragOriginal = null;
-          dragDelta = 0;
-          draggingAppointmentId = null;
-          draggingPreviewStart = null;
+                dragOriginal = null;
+                dragDelta = 0;
+                draggingAppointmentId = null;
+                draggingPreviewStart = null;
 
-          if (mounted) setState(() {});
+                if (mounted) setState(() {});
 
-          await widget.store.updateAppointment(updated);
-          await widget.store.syncAppointment(updated);
+                await widget.store.updateAppointment(updated);
+                await widget.store.syncAppointment(updated);
+              };
+            },
+          ),
         },
         child: Container(
 
@@ -1809,6 +1815,7 @@ class _AgendaPageState extends State<AgendaPage> {
 
             ],
           ),
+        ),
         ),
       ),
     );
