@@ -1520,21 +1520,21 @@ class _AgendaPageState extends State<AgendaPage> {
               recognizer.onTap = () => _showAppointmentDetails(context, a);
             },
           ),
-          LongPressGestureRecognizer:
-              GestureRecognizerFactoryWithHandlers<LongPressGestureRecognizer>(
-            () => LongPressGestureRecognizer(
-              duration: const Duration(milliseconds: 80),
-            ),
-            (LongPressGestureRecognizer recognizer) {
-              recognizer.onLongPressStart = (_) {
+          PanGestureRecognizer:
+              GestureRecognizerFactoryWithHandlers<PanGestureRecognizer>(
+            () => PanGestureRecognizer(),
+            (PanGestureRecognizer recognizer) {
+              // O movimento começa imediatamente ao arrastar, como no Google Agenda.
+              // Um toque sem movimento continua sendo tratado pelo TapGestureRecognizer acima.
+              recognizer.onStart = (_) {
                 dragOriginal = a.start;
                 dragDelta = 0;
                 setState(() {});
               };
-              recognizer.onLongPressMoveUpdate = (details) {
+              recognizer.onUpdate = (details) {
                 if (dragOriginal == null) return;
 
-                dragDelta = details.offsetFromOrigin.dy;
+                dragDelta = details.delta.dy;
                 final minutesDelta = (dragDelta / hourHeight * 60).round();
                 final newStart = _snapTime(
                   dragOriginal!.add(Duration(minutes: minutesDelta)),
@@ -1543,7 +1543,7 @@ class _AgendaPageState extends State<AgendaPage> {
                 final updated = _copyAppointment(a, start: newStart);
                 widget.store.updateAppointment(updated);
               };
-              recognizer.onLongPressEnd = (_) async {
+              recognizer.onEnd = (_) async {
                 if (dragOriginal == null) return;
 
                 dragOriginal = null;
