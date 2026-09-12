@@ -1517,67 +1517,53 @@ class _AgendaPageState extends State<AgendaPage> {
       left: left,
       right: right,
       height: height.toDouble(),
-      child: RawGestureDetector(
-        gestures: <Type, GestureRecognizerFactory>{
-          TapGestureRecognizer:
-              GestureRecognizerFactoryWithHandlers<TapGestureRecognizer>(
-            () => TapGestureRecognizer(),
-            (TapGestureRecognizer recognizer) {
-              recognizer.onTap = () => _showAppointmentDetails(context, a);
-            },
-          ),
-          PanGestureRecognizer:
-              GestureRecognizerFactoryWithHandlers<PanGestureRecognizer>(
-            () => PanGestureRecognizer(),
-            (PanGestureRecognizer recognizer) {
-              // O cartão inteiro é a área de arraste. Não existe alça de redimensionamento:
-              // qualquer ponto do agendamento pode ser pressionado e arrastado para mudar
-              // somente a posição/horário.
-              recognizer.dragStartBehavior = DragStartBehavior.start;
-              // O gesto é reconhecido assim que o dedo começa a se mover.
-              // Durante o arraste usamos apenas um preview local para que o
-              // card acompanhe o dedo sem salvar a cada pixel movimentado.
-              recognizer.onStart = (_) {
-                dragOriginal = a.start;
-                dragDelta = 0;
-                draggingAppointmentId = a.id;
-                draggingPreviewStart = a.start;
-                setState(() {});
-              };
-              recognizer.onUpdate = (details) {
-                if (dragOriginal == null || draggingAppointmentId != a.id) return;
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        // Um toque simples abre os detalhes.
+        onTap: () => _showAppointmentDetails(context, a),
+        // O agendamento inteiro pode ser arrastado. Não há alça de redimensionamento.
+        // O primeiro movimento vertical já inicia o deslocamento; não usamos
+        // onLongPress, para não criar um atraso perceptível.
+        onVerticalDragStart: (_) {
+          dragOriginal = a.start;
+          dragDelta = 0;
+          draggingAppointmentId = a.id;
+          draggingPreviewStart = a.start;
+          setState(() {});
+        },
+        onVerticalDragUpdate: (details) {
+          if (dragOriginal == null || draggingAppointmentId != a.id) return;
 
-                dragDelta += details.delta.dy;
-                final minutesDelta = (dragDelta / hourHeight * 60).round();
-                final newStart = _snapTime(
-                  dragOriginal!.add(Duration(minutes: minutesDelta)),
-                );
+          dragDelta += details.delta.dy;
+          final minutesDelta = (dragDelta / hourHeight * 60).round();
+          final newStart = _snapTime(
+            dragOriginal!.add(Duration(minutes: minutesDelta)),
+          );
 
-                setState(() {
-                  draggingPreviewStart = newStart;
-                });
-              };
-              recognizer.onEnd = (_) async {
-                if (dragOriginal == null || draggingAppointmentId != a.id) return;
+          if (newStart == draggingPreviewStart) return;
+          setState(() {
+            draggingPreviewStart = newStart;
+          });
+        },
+        onVerticalDragEnd: (_) async {
+          if (dragOriginal == null || draggingAppointmentId != a.id) return;
 
-                final finalStart = draggingPreviewStart ?? dragOriginal!;
-                final updated = _copyAppointment(a, start: finalStart);
+          final finalStart = draggingPreviewStart ?? dragOriginal!;
+          final updated = _copyAppointment(a, start: finalStart);
 
-                // Salva uma única vez, somente quando o arraste termina.
-                dragOriginal = null;
-                dragDelta = 0;
-                draggingAppointmentId = null;
-                draggingPreviewStart = null;
+          // Limpa a prévia imediatamente; persiste somente uma vez ao soltar.
+          dragOriginal = null;
+          dragDelta = 0;
+          draggingAppointmentId = null;
+          draggingPreviewStart = null;
 
-                if (mounted) setState(() {});
+          if (mounted) setState(() {});
 
-                await widget.store.updateAppointment(updated);
-                await widget.store.syncAppointment(updated);
-              };
-            },
-          ),
+          await widget.store.updateAppointment(updated);
+          await widget.store.syncAppointment(updated);
         },
         child: Container(
+
           margin: const EdgeInsets.symmetric(vertical: 2),
           decoration: BoxDecoration(
             color: a.color.withOpacity(.17),
