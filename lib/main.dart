@@ -1534,7 +1534,9 @@ class _AgendaPageState extends State<AgendaPage> {
               recognizer.onUpdate = (details) {
                 if (dragOriginal == null) return;
 
-                dragDelta = details.delta.dy;
+                // Acumula todo o movimento desde o início do arraste.
+                // Assim o agendamento acompanha o cursor continuamente.
+                dragDelta += details.delta.dy;
                 final minutesDelta = (dragDelta / hourHeight * 60).round();
                 final newStart = _snapTime(
                   dragOriginal!.add(Duration(minutes: minutesDelta)),
