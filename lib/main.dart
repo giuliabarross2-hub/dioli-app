@@ -1367,25 +1367,54 @@ class _AgendaPageState extends State<AgendaPage> {
             height: 24 * hourHeight,
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: List.generate(days.length, (index) {
-                return Expanded(
-                  child: Stack(
-                    children: [
-                      _timeline(days[index]),
-                      if (index < days.length - 1)
-                        Positioned(
-                          top: 0,
-                          bottom: 0,
-                          right: 0,
-                          child: Container(
-                            width: 1,
-                            color: AppColors.line.withOpacity(.45),
+              children: [
+                // Horários fixos na lateral, como no Google Agenda.
+                SizedBox(
+                  width: 62,
+                  height: 24 * hourHeight,
+                  child: Column(
+                    children: List.generate(24, (h) {
+                      return SizedBox(
+                        height: hourHeight,
+                        child: Align(
+                          alignment: Alignment.topCenter,
+                          child: Text(
+                            '${h.toString().padLeft(2, '0')}:00',
+                            style: const TextStyle(
+                              fontSize: 10,
+                              color: AppColors.muted,
+                            ),
                           ),
                         ),
-                    ],
+                      );
+                    }),
                   ),
-                );
-              }),
+                ),
+                Expanded(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: List.generate(days.length, (index) {
+                      return Expanded(
+                        child: Stack(
+                          children: [
+                            _timeline(days[index]),
+                            if (index < days.length - 1)
+                              Positioned(
+                                top: 0,
+                                bottom: 0,
+                                right: 0,
+                                child: Container(
+                                  width: 1,
+                                  color: AppColors.line.withOpacity(.45),
+                                ),
+                              ),
+                          ],
+                        ),
+                      );
+                    }),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -1707,7 +1736,7 @@ class _AgendaPageState extends State<AgendaPage> {
           LongPressGestureRecognizer: GestureRecognizerFactoryWithHandlers<
               LongPressGestureRecognizer>(
             () => LongPressGestureRecognizer(
-              duration: const Duration(milliseconds: 120),
+              duration: const Duration(milliseconds: 220),
             ),
             (recognizer) {
               recognizer.onLongPressStart = (_) {
