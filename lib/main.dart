@@ -1367,7 +1367,25 @@ class _AgendaPageState extends State<AgendaPage> {
             height: 24 * hourHeight,
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: days.map((d) => Expanded(child: _timeline(d))).toList(),
+              children: List.generate(days.length, (index) {
+                return Expanded(
+                  child: Stack(
+                    children: [
+                      _timeline(days[index]),
+                      if (index < days.length - 1)
+                        Positioned(
+                          top: 0,
+                          bottom: 0,
+                          right: 0,
+                          child: Container(
+                            width: 1,
+                            color: AppColors.line.withOpacity(.45),
+                          ),
+                        ),
+                    ],
+                  ),
+                );
+              }),
             ),
           ),
         ],
@@ -1681,6 +1699,7 @@ class _AgendaPageState extends State<AgendaPage> {
       right: right,
       height: height.toDouble(),
       child: GestureDetector(
+        dragStartBehavior: DragStartBehavior.down,
         behavior: HitTestBehavior.opaque,
         // Um toque simples abre os detalhes.
         onTap: () => _showAppointmentDetails(context, a),
