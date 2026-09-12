@@ -981,6 +981,119 @@ class _AgendaPageState extends State<AgendaPage> {
     widget.onDate(widget.selectedDate.add(Duration(days: days)));
   }
 
+  Future<void> _showMonthPicker() async {
+    var displayedYear = widget.selectedDate.year;
+
+    final selected = await showModalBottomSheet<DateTime>(
+      context: context,
+      backgroundColor: AppColors.card,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            final monthNames = List.generate(
+              12,
+              (i) => DateFormat('MMM', 'pt_BR')
+                  .format(DateTime(displayedYear, i + 1))
+                  .replaceAll('.', '')
+                  .toUpperCase(),
+            );
+
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(18, 4, 18, 24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        IconButton(
+                          tooltip: 'Ano anterior',
+                          onPressed: () => setSheetState(() => displayedYear--),
+                          icon: const Icon(Icons.chevron_left),
+                        ),
+                        Expanded(
+                          child: Text(
+                            '$displayedYear',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'Próximo ano',
+                          onPressed: () => setSheetState(() => displayedYear++),
+                          icon: const Icon(Icons.chevron_right),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 3,
+                        childAspectRatio: 2.2,
+                        crossAxisSpacing: 8,
+                        mainAxisSpacing: 8,
+                      ),
+                      itemCount: 12,
+                      itemBuilder: (context, index) {
+                        final month = index + 1;
+                        final isSelected = displayedYear == widget.selectedDate.year &&
+                            month == widget.selectedDate.month;
+                        return InkWell(
+                          borderRadius: BorderRadius.circular(12),
+                          onTap: () {
+                            final maxDay = DateTime(displayedYear, month + 1, 0).day;
+                            final day = widget.selectedDate.day.clamp(1, maxDay).toInt();
+                            Navigator.pop(
+                              sheetContext,
+                              DateTime(displayedYear, month, day),
+                            );
+                          },
+                          child: Container(
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              color: isSelected
+                                  ? professionalColor(widget.professional).withOpacity(.15)
+                                  : Colors.transparent,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: isSelected
+                                    ? professionalColor(widget.professional)
+                                    : AppColors.line,
+                              ),
+                            ),
+                            child: Text(
+                              monthNames[index],
+                              style: TextStyle(
+                                fontWeight: isSelected
+                                    ? FontWeight.w800
+                                    : FontWeight.w600,
+                                color: AppColors.text,
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    if (selected != null && mounted) {
+      widget.onDate(selected);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -1006,15 +1119,30 @@ class _AgendaPageState extends State<AgendaPage> {
             ),
           ),
           const SizedBox(width: 4),
-          const Expanded(
-            child: Text(
-              'dioli',
-              style: TextStyle(
-                color: AppColors.text,
-                fontSize: 22,
-                fontFamily: 'BostonAngel',
-                fontWeight: FontWeight.w600,
-                letterSpacing: 1.4,
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(18),
+                onTap: _showMonthPicker,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        DateFormat('MMMM', 'pt_BR').format(widget.selectedDate),
+                        style: const TextStyle(
+                          color: AppColors.text,
+                          fontSize: 22,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      const Icon(Icons.arrow_drop_down_rounded, size: 24),
+                    ],
+                  ),
+                ),
               ),
             ),
           ),
@@ -1097,39 +1225,50 @@ class _AgendaPageState extends State<AgendaPage> {
   }
 
   Widget _dateBar() {
+    if (widget.view != CalendarView.day) {
+      return const SizedBox(height: 6);
+    }
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
+      padding: const EdgeInsets.fromLTRB(22, 6, 14, 8),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                DateFormat('EEE', 'pt_BR')
+                    .format(widget.selectedDate)
+                    .replaceAll('.', '')
+                    .toUpperCase(),
+                style: const TextStyle(
+                  color: AppColors.muted,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: .8,
+                ),
+              ),
+              const SizedBox(height: 1),
+              Text(
+                '${widget.selectedDate.day}',
+                style: const TextStyle(
+                  color: AppColors.text,
+                  fontSize: 34,
+                  height: 1,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+          const Spacer(),
           IconButton(
+            tooltip: 'Dia anterior',
             onPressed: () => _moveDate(-1),
             icon: const Icon(Icons.chevron_left),
           ),
-          Expanded(
-            child: Column(
-              children: [
-                Text(
-                  _dateTitle(),
-                  style: const TextStyle(
-                    color: AppColors.text,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 16,
-                  ),
-                ),
-                Text(
-                  DateFormat('EEEE', 'pt_BR')
-                      .format(widget.selectedDate)
-                      .toUpperCase(),
-                  style: const TextStyle(
-                    color: AppColors.muted,
-                    fontSize: 11,
-                    letterSpacing: 1,
-                  ),
-                ),
-              ],
-            ),
-          ),
           IconButton(
+            tooltip: 'Próximo dia',
             onPressed: () => _moveDate(1),
             icon: const Icon(Icons.chevron_right),
           ),
@@ -1186,14 +1325,38 @@ class _AgendaPageState extends State<AgendaPage> {
                         },
                         child: Padding(
                           padding: const EdgeInsets.all(4),
-                          child: Text(
-                            DateFormat('EEE\n dd/MM', 'pt_BR').format(d),
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.muted,
-                            ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                DateFormat('EEE', 'pt_BR')
+                                    .format(d)
+                                    .replaceAll('.', '')
+                                    .toUpperCase(),
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.muted,
+                                  letterSpacing: .6,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                '${d.day}',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 24,
+                                  height: 1,
+                                  fontWeight: _sameDay(d, DateTime.now())
+                                      ? FontWeight.w800
+                                      : FontWeight.w500,
+                                  color: _sameDay(d, DateTime.now())
+                                      ? professionalColor(widget.professional)
+                                      : AppColors.text,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ),
@@ -1568,9 +1731,23 @@ class _AgendaPageState extends State<AgendaPage> {
           decoration: BoxDecoration(
             color: a.color.withOpacity(.17),
             borderRadius: BorderRadius.circular(10),
-            border: Border(
-              left: BorderSide(color: a.color, width: 4),
-            ),
+            border: draggingAppointmentId == a.id
+                ? Border.all(
+                    color: const Color(0xFF4A4A4A),
+                    width: 2.5,
+                  )
+                : Border(
+                    left: BorderSide(color: a.color, width: 4),
+                  ),
+            boxShadow: draggingAppointmentId == a.id
+                ? const [
+                    BoxShadow(
+                      color: Color(0x33000000),
+                      blurRadius: 6,
+                      offset: Offset(0, 2),
+                    ),
+                  ]
+                : null,
           ),
           child: Stack(
             children: [
