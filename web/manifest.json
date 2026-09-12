@@ -1,7 +1,8 @@
 {
     "name": "DIOLI",
     "short_name": "DIOLI",
-    "start_url": ".",
+    "start_url": "./",
+    "scope": "./",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
