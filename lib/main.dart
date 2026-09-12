@@ -923,6 +923,8 @@ class _AgendaPageState extends State<AgendaPage> {
   final double hourHeight = 72;
   DateTime? dragOriginal;
   double dragDelta = 0;
+  String? draggingAppointmentId;
+  DateTime? draggingPreviewStart;
   Appointment? resizing;
   double resizeDelta = 0;
 
@@ -1499,7 +1501,11 @@ class _AgendaPageState extends State<AgendaPage> {
   }
 
   Widget _appointmentCard(Appointment a, bool showLabels) {
-    final minutes = a.start.hour * 60 + a.start.minute;
+    final effectiveStart =
+        draggingAppointmentId == a.id && draggingPreviewStart != null
+            ? draggingPreviewStart!
+            : a.start;
+    final minutes = effectiveStart.hour * 60 + effectiveStart.minute;
     final top = minutes / 60 * hourHeight;
     final height =
         (a.duration / 60 * hourHeight).clamp(34.0, 24 * hourHeight);
@@ -1524,43 +1530,45 @@ class _AgendaPageState extends State<AgendaPage> {
               GestureRecognizerFactoryWithHandlers<PanGestureRecognizer>(
             () => PanGestureRecognizer(),
             (PanGestureRecognizer recognizer) {
-              // O movimento começa imediatamente ao arrastar, como no Google Agenda.
-              // Um toque sem movimento continua sendo tratado pelo TapGestureRecognizer acima.
+              // O gesto é reconhecido assim que o dedo começa a se mover.
+              // Durante o arraste usamos apenas um preview local para que o
+              // card acompanhe o dedo sem salvar a cada pixel movimentado.
               recognizer.onStart = (_) {
                 dragOriginal = a.start;
                 dragDelta = 0;
+                draggingAppointmentId = a.id;
+                draggingPreviewStart = a.start;
                 setState(() {});
               };
               recognizer.onUpdate = (details) {
-                if (dragOriginal == null) return;
+                if (dragOriginal == null || draggingAppointmentId != a.id) return;
 
-                // Acumula todo o movimento desde o início do arraste.
-                // Assim o agendamento acompanha o cursor continuamente.
                 dragDelta += details.delta.dy;
                 final minutesDelta = (dragDelta / hourHeight * 60).round();
                 final newStart = _snapTime(
                   dragOriginal!.add(Duration(minutes: minutesDelta)),
                 );
 
-                final updated = _copyAppointment(a, start: newStart);
-                widget.store.updateAppointment(updated);
+                setState(() {
+                  draggingPreviewStart = newStart;
+                });
               };
               recognizer.onEnd = (_) async {
-                if (dragOriginal == null) return;
+                if (dragOriginal == null || draggingAppointmentId != a.id) return;
 
+                final finalStart = draggingPreviewStart ?? dragOriginal!;
+                final updated = _copyAppointment(a, start: finalStart);
+
+                // Salva uma única vez, somente quando o arraste termina.
                 dragOriginal = null;
                 dragDelta = 0;
-
-                final current = widget.store.appointments
-                    .where((x) => x.id == a.id)
-                    .cast<Appointment?>()
-                    .firstWhere((x) => x != null, orElse: () => null);
-
-                if (current != null) {
-                  await widget.store.syncAppointment(current);
-                }
+                draggingAppointmentId = null;
+                draggingPreviewStart = null;
 
                 if (mounted) setState(() {});
+
+                await widget.store.updateAppointment(updated);
+                await widget.store.syncAppointment(updated);
               };
             },
           ),
