@@ -472,13 +472,22 @@ class AppStore extends ChangeNotifier {
   }
 
   Future<void> addAppointment(Appointment a) async {
+    // Atualização otimista: o compromisso aparece imediatamente na agenda,
+    // sem esperar a resposta do Google/Supabase.
+    appointments.add(a);
+    notifyListeners();
+
+    // Persiste em segundo plano. O objeto é o mesmo da lista, então o
+    // googleEventId/ID recebido do Google é refletido automaticamente.
+    unawaited(_persistNewAppointment(a));
+  }
+
+  Future<void> _persistNewAppointment(Appointment a) async {
     try {
       await DioliCalendarBackend.createEvent(a);
     } catch (_) {
-      // Salva localmente mesmo se a internet/Google falhar.
+      // Mantém o compromisso local mesmo se a internet/Google falhar.
     }
-
-    appointments.add(a);
     await save();
     notifyListeners();
   }
@@ -1511,22 +1520,21 @@ class _AgendaPageState extends State<AgendaPage> {
               recognizer.onTap = () => _showAppointmentDetails(context, a);
             },
           ),
-          VerticalDragGestureRecognizer:
-              GestureRecognizerFactoryWithHandlers<VerticalDragGestureRecognizer>(
-            () => VerticalDragGestureRecognizer(),
-            (VerticalDragGestureRecognizer recognizer) {
-              // Igual ao Google Agenda: ao começar a arrastar um compromisso,
-              // ele acompanha o dedo imediatamente, sem esperar long press.
-              // Um toque sem arrastar continua abrindo os detalhes normalmente.
-              recognizer.onStart = (_) {
+          LongPressGestureRecognizer:
+              GestureRecognizerFactoryWithHandlers<LongPressGestureRecognizer>(
+            () => LongPressGestureRecognizer(
+              duration: const Duration(milliseconds: 80),
+            ),
+            (LongPressGestureRecognizer recognizer) {
+              recognizer.onLongPressStart = (_) {
                 dragOriginal = a.start;
                 dragDelta = 0;
                 setState(() {});
               };
-              recognizer.onUpdate = (details) {
+              recognizer.onLongPressMoveUpdate = (details) {
                 if (dragOriginal == null) return;
 
-                dragDelta += details.primaryDelta ?? 0;
+                dragDelta = details.offsetFromOrigin.dy;
                 final minutesDelta = (dragDelta / hourHeight * 60).round();
                 final newStart = _snapTime(
                   dragOriginal!.add(Duration(minutes: minutesDelta)),
@@ -1535,7 +1543,7 @@ class _AgendaPageState extends State<AgendaPage> {
                 final updated = _copyAppointment(a, start: newStart);
                 widget.store.updateAppointment(updated);
               };
-              recognizer.onEnd = (_) async {
+              recognizer.onLongPressEnd = (_) async {
                 if (dragOriginal == null) return;
 
                 dragOriginal = null;
@@ -1550,11 +1558,6 @@ class _AgendaPageState extends State<AgendaPage> {
                   await widget.store.syncAppointment(current);
                 }
 
-                if (mounted) setState(() {});
-              };
-              recognizer.onCancel = () {
-                dragOriginal = null;
-                dragDelta = 0;
                 if (mounted) setState(() {});
               };
             },
