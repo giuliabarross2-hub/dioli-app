@@ -1621,56 +1621,6 @@ class _AgendaPageState extends State<AgendaPage> {
                 ),
               ),
 
-              // Alça inferior para aumentar/diminuir a duração.
-              Positioned(
-                bottom: 0,
-                left: 0,
-                right: 0,
-                height: 14,
-                child: GestureDetector(
-                  onVerticalDragStart: (_) {
-                    resizing = a;
-                    resizeDelta = 0;
-                  },
-                  onVerticalDragUpdate: (details) {
-                    if (resizing == null) return;
-
-                    resizeDelta += details.delta.dy;
-                    final minutesDelta =
-                        (resizeDelta / hourHeight * 60).round();
-                    final newDuration =
-                        ((a.duration + minutesDelta) / 30).round() * 30;
-                    final safe = newDuration.clamp(30, 8 * 60);
-
-                    widget.store.updateAppointment(
-                      _copyAppointment(a, duration: safe),
-                    );
-                  },
-                  onVerticalDragEnd: (_) async {
-                    resizing = null;
-                    resizeDelta = 0;
-
-                    final current = widget.store.appointments
-                        .where((x) => x.id == a.id)
-                        .cast<Appointment?>()
-                        .firstWhere((x) => x != null, orElse: () => null);
-
-                    if (current != null) {
-                      await widget.store.syncAppointment(current);
-                    }
-                  },
-                  child: Center(
-                    child: Container(
-                      width: 28,
-                      height: 3,
-                      decoration: BoxDecoration(
-                        color: a.color.withOpacity(.65),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
             ],
           ),
         ),
