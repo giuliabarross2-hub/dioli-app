@@ -2367,36 +2367,107 @@ class _AgendaPageState extends State<AgendaPage> {
             bool saving = false;
 
             Future<void> pickDate() async {
-              final d = await showDatePicker(
+              DateTime selectedCalendarDate = DateTime(
+                start.year,
+                start.month,
+                start.day,
+              );
+
+              final d = await showModalBottomSheet<DateTime>(
                 context: context,
-                locale: const Locale('pt', 'BR'),
-                initialDate: start,
-                firstDate: DateTime(2020),
-                lastDate: DateTime(2100),
-                helpText: 'Selecionar data',
-                cancelText: 'Cancelar',
-                confirmText: 'OK',
-                builder: (context, child) {
-                  return Theme(
-                    data: Theme.of(context).copyWith(
-                      colorScheme: ColorScheme.fromSeed(
-                        seedColor: professionalColor(pro),
-                        brightness: Brightness.light,
-                        surface: Colors.white,
-                      ),
-                      dialogTheme: const DialogThemeData(
-                        backgroundColor: Colors.white,
-                      ),
-                    ),
-                    child: child!,
+                useRootNavigator: true,
+                isScrollControlled: true,
+                backgroundColor: Colors.transparent,
+                builder: (calendarContext) {
+                  return StatefulBuilder(
+                    builder: (context, setCalendarState) {
+                      return SafeArea(
+                        child: Container(
+                          margin: const EdgeInsets.all(12),
+                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(24),
+                          ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Row(
+                                children: [
+                                  const Expanded(
+                                    child: Text(
+                                      'Selecionar data',
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.w800,
+                                        color: AppColors.text,
+                                      ),
+                                    ),
+                                  ),
+                                  IconButton(
+                                    onPressed: () =>
+                                        Navigator.pop(calendarContext),
+                                    icon: const Icon(Icons.close),
+                                  ),
+                                ],
+                              ),
+                              CalendarDatePicker(
+                                initialDate: selectedCalendarDate,
+                                firstDate: DateTime(2020),
+                                lastDate: DateTime(2100),
+                                onDateChanged: (value) {
+                                  setCalendarState(() {
+                                    selectedCalendarDate = value;
+                                  });
+                                },
+                              ),
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: OutlinedButton(
+                                      onPressed: () =>
+                                          Navigator.pop(calendarContext),
+                                      child: const Text('Cancelar'),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: FilledButton(
+                                      style: FilledButton.styleFrom(
+                                        backgroundColor: AppColors.text,
+                                      ),
+                                      onPressed: () => Navigator.pop(
+                                        calendarContext,
+                                        selectedCalendarDate,
+                                      ),
+                                      child: const Text('OK'),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
                   );
                 },
               );
+
               if (d == null) return;
+
+              final oldDuration = end.difference(start);
+
               setLocal(() {
-                start =
-                    DateTime(d.year, d.month, d.day, start.hour, start.minute);
-                end = DateTime(d.year, d.month, d.day, end.hour, end.minute);
+                start = DateTime(
+                  d.year,
+                  d.month,
+                  d.day,
+                  start.hour,
+                  start.minute,
+                );
+                end = start.add(oldDuration);
               });
             }
 
