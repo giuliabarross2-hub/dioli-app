@@ -2376,6 +2376,21 @@ class _AgendaPageState extends State<AgendaPage> {
                 helpText: 'Selecionar data',
                 cancelText: 'Cancelar',
                 confirmText: 'OK',
+                builder: (context, child) {
+                  return Theme(
+                    data: Theme.of(context).copyWith(
+                      colorScheme: ColorScheme.fromSeed(
+                        seedColor: professionalColor(pro),
+                        brightness: Brightness.light,
+                        surface: Colors.white,
+                      ),
+                      dialogTheme: const DialogThemeData(
+                        backgroundColor: Colors.white,
+                      ),
+                    ),
+                    child: child!,
+                  );
+                },
               );
               if (d == null) return;
               setLocal(() {
@@ -2672,9 +2687,7 @@ class _AgendaPageState extends State<AgendaPage> {
                                                   client: client.text.trim(),
                                                   service:
                                                       existing?.service ?? '',
-                                                  professional:
-                                                      existing?.professional ??
-                                                          Professional.giulia,
+                                                  professional: pro,
                                                   start: start,
                                                   duration: duration.clamp(
                                                       5, 24 * 60),
