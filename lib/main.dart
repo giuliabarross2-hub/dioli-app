@@ -589,7 +589,7 @@ class _AgendaShellState extends State<AgendaShell> {
     super.initState();
     widget.store.addListener(_refresh);
 
-    nowTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+    nowTimer = Timer.periodic(const Duration(seconds: 10), (_) {
       if (!mounted) return;
       setState(() {});
       widget.store.syncGoogleCalendars();
