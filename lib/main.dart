@@ -386,6 +386,32 @@ class AppStore extends ChangeNotifier {
   bool loaded = false;
   final Map<String, int> colorOverrides = {};
 
+  // Status da sincronização com o Google Agenda.
+  final Map<Professional, bool> googleSyncing = {
+    Professional.giulia: false,
+    Professional.tuani: false,
+  };
+
+  final Map<Professional, bool?> googleSyncOk = {
+    Professional.giulia: null,
+    Professional.tuani: null,
+  };
+
+  final Map<Professional, DateTime?> googleLastSync = {
+    Professional.giulia: null,
+    Professional.tuani: null,
+  };
+
+  final Map<Professional, int> googleEventCount = {
+    Professional.giulia: 0,
+    Professional.tuani: 0,
+  };
+
+  final Map<Professional, String?> googleSyncError = {
+    Professional.giulia: null,
+    Professional.tuani: null,
+  };
+
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
     final a = prefs.getString('appointments');
@@ -431,52 +457,77 @@ class AppStore extends ChangeNotifier {
   }
 
   Future<void> syncGoogleCalendars() async {
-    final now = DateTime.now();
-    final from = DateTime(now.year - 1, 1, 1);
-    final to = DateTime(now.year + 3, 12, 31, 23, 59);
-
     for (final professional in [
       Professional.giulia,
       Professional.tuani,
     ]) {
-      try {
-        // Guarda as cores escolhidas manualmente antes de substituir os
-        // eventos vindos do Google. Assim a cor não volta ao padrão após
-        // atualizar/reiniciar a agenda.
-        for (final a in appointments) {
-          if (a.professional == professional &&
-              a.googleEventId != null &&
-              a.googleEventId!.isNotEmpty) {
-            colorOverrides[a.googleEventId!] = a.color.toARGB32();
-          }
-        }
-
-        final remote = await DioliCalendarBackend.listEvents(
-          professional,
-          from: from,
-          to: to,
-        );
-
-        for (final a in remote) {
-          final savedColor = colorOverrides[a.googleEventId];
-          if (savedColor != null) {
-            a.color = Color(savedColor);
-          }
-        }
-
-        appointments.removeWhere(
-          (a) => a.professional == professional && a.googleEventId != null,
-        );
-        appointments.addAll(remote);
-      } catch (e) {
-        print(
-            'ERRO SINCRONIZANDO ${professional == Professional.tuani ? 'TUANI' : 'GIULIA'}: $e');
-      }
+      await syncGoogleCalendar(professional);
     }
+  }
 
-    appointments.sort((a, b) => a.start.compareTo(b.start));
-    await save();
+  Future<bool> syncGoogleCalendar(Professional professional) async {
+    if (googleSyncing[professional] == true) return false;
+
+    googleSyncing[professional] = true;
+    googleSyncError[professional] = null;
     notifyListeners();
+
+    final now = DateTime.now();
+    final from = DateTime(now.year - 1, 1, 1);
+    final to = DateTime(now.year + 3, 12, 31, 23, 59);
+
+    try {
+      // Guarda as cores escolhidas manualmente.
+      for (final a in appointments) {
+        if (a.professional == professional &&
+            a.googleEventId != null &&
+            a.googleEventId!.isNotEmpty) {
+          colorOverrides[a.googleEventId!] = a.color.toARGB32();
+        }
+      }
+
+      final remote = await DioliCalendarBackend.listEvents(
+        professional,
+        from: from,
+        to: to,
+      );
+
+      for (final a in remote) {
+        final savedColor = colorOverrides[a.googleEventId];
+        if (savedColor != null) {
+          a.color = Color(savedColor);
+        }
+      }
+
+      appointments.removeWhere(
+        (a) => a.professional == professional && a.googleEventId != null,
+      );
+      appointments.addAll(remote);
+      appointments.sort((a, b) => a.start.compareTo(b.start));
+
+      googleSyncOk[professional] = true;
+      googleLastSync[professional] = DateTime.now();
+      googleEventCount[professional] = remote.length;
+      googleSyncError[professional] = null;
+
+      await save();
+      notifyListeners();
+      return true;
+    } catch (e) {
+      googleSyncOk[professional] = false;
+      googleLastSync[professional] = DateTime.now();
+      googleSyncError[professional] = e.toString();
+
+      print(
+        'ERRO SINCRONIZANDO ${professional == Professional.tuani ? 'TUANI' : 'GIULIA'}: $e',
+      );
+
+      notifyListeners();
+      return false;
+    } finally {
+      googleSyncing[professional] = false;
+      notifyListeners();
+    }
   }
 
   Future<void> addAppointment(Appointment a) async {
@@ -661,6 +712,7 @@ class _AgendaShellState extends State<AgendaShell> {
               onBack: () => _selectTab(0),
             ),
             MorePage(
+              store: widget.store,
               onView: _selectView,
               currentView: view,
               onBack: () => _selectTab(0),
@@ -3186,12 +3238,246 @@ class FinancePage extends StatelessWidget {
   }
 }
 
+class GoogleSyncPage extends StatefulWidget {
+  final AppStore store;
+  final Professional professional;
+
+  const GoogleSyncPage({
+    super.key,
+    required this.store,
+    required this.professional,
+  });
+
+  @override
+  State<GoogleSyncPage> createState() => _GoogleSyncPageState();
+}
+
+class _GoogleSyncPageState extends State<GoogleSyncPage> {
+  @override
+  void initState() {
+    super.initState();
+    widget.store.addListener(_refresh);
+  }
+
+  @override
+  void dispose() {
+    widget.store.removeListener(_refresh);
+    super.dispose();
+  }
+
+  void _refresh() {
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _sync() async {
+    final ok = await widget.store.syncGoogleCalendar(widget.professional);
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          ok
+              ? 'Google Agenda sincronizada com sucesso.'
+              : 'Não foi possível sincronizar o Google Agenda.',
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = widget.professional;
+    final syncing = widget.store.googleSyncing[p] == true;
+    final ok = widget.store.googleSyncOk[p];
+    final lastSync = widget.store.googleLastSync[p];
+    final count = widget.store.googleEventCount[p] ?? 0;
+    final error = widget.store.googleSyncError[p];
+
+    String status;
+    IconData statusIcon;
+    Color statusColor;
+
+    if (syncing) {
+      status = 'Sincronizando...';
+      statusIcon = Icons.sync_rounded;
+      statusColor = AppColors.muted;
+    } else if (ok == true) {
+      status = 'Conectado';
+      statusIcon = Icons.check_circle_rounded;
+      statusColor = AppColors.green;
+    } else if (ok == false) {
+      status = 'Erro na sincronização';
+      statusIcon = Icons.error_rounded;
+      statusColor = AppColors.red;
+    } else {
+      status = 'Ainda não verificado';
+      statusIcon = Icons.help_outline_rounded;
+      statusColor = AppColors.muted;
+    }
+
+    final lastSyncText = lastSync == null
+        ? 'Ainda não realizada'
+        : DateFormat("dd/MM/yyyy 'às' HH:mm", 'pt_BR').format(lastSync);
+
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      appBar: AppBar(
+        title: Text('Google Agenda — ${professionalLabel(p)}'),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: AppColors.card,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: AppColors.line),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(statusIcon, color: statusColor, size: 28),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        status,
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                          color: statusColor,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                const Text(
+                  'PROFISSIONAL',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.muted,
+                    letterSpacing: 1,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  professionalLabel(p),
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 18),
+                const Text(
+                  'ÚLTIMA VERIFICAÇÃO',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.muted,
+                    letterSpacing: 1,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(lastSyncText),
+                const SizedBox(height: 18),
+                const Text(
+                  'EVENTOS ENCONTRADOS',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.muted,
+                    letterSpacing: 1,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '$count eventos',
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ],
+            ),
+          ),
+          if (error != null && error.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppColors.red.withOpacity(.08),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: AppColors.red.withOpacity(.35)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'DETALHES DO ERRO',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.red,
+                      letterSpacing: 1,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  SelectableText(
+                    error,
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 22),
+          SizedBox(
+            height: 52,
+            child: FilledButton.icon(
+              onPressed: syncing ? null : _sync,
+              icon: syncing
+                  ? const SizedBox(
+                      width: 19,
+                      height: 19,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.sync_rounded),
+              label: Text(
+                syncing ? 'SINCRONIZANDO...' : 'SINCRONIZAR AGORA',
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'Este botão força uma nova leitura dos compromissos diretamente do Google Agenda.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 12,
+              color: AppColors.muted,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class MorePage extends StatelessWidget {
+  final AppStore store;
   final ValueChanged<CalendarView> onView;
   final CalendarView currentView;
   final VoidCallback onBack;
+
   const MorePage({
     super.key,
+    required this.store,
     required this.onView,
     required this.currentView,
     required this.onBack,
@@ -3239,20 +3525,8 @@ class MorePage extends StatelessWidget {
               ),
             ),
           ),
-          ListTile(
-            leading: const Icon(Icons.calendar_month_outlined),
-            title: const Text('GIULIA'),
-            subtitle: const Text('Sincronização Google configurada'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () {},
-          ),
-          ListTile(
-            leading: const Icon(Icons.calendar_month_outlined),
-            title: const Text('TUANI'),
-            subtitle: const Text('Sincronização Google configurada'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () {},
-          ),
+          _googleTile(context, Professional.giulia),
+          _googleTile(context, Professional.tuani),
           const Divider(),
           const ListTile(
             leading: Icon(Icons.palette_outlined),
@@ -3265,6 +3539,56 @@ class MorePage extends StatelessWidget {
             subtitle: Text('Agenda interna • DIOLI – Studio de Beleza'),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _googleTile(BuildContext context, Professional professional) {
+    final syncing = store.googleSyncing[professional] == true;
+    final ok = store.googleSyncOk[professional];
+
+    String subtitle;
+    if (syncing) {
+      subtitle = 'Sincronizando...';
+    } else if (ok == true) {
+      subtitle =
+          'Conectado • ${store.googleEventCount[professional] ?? 0} eventos';
+    } else if (ok == false) {
+      subtitle = 'Erro na sincronização';
+    } else {
+      subtitle = 'Toque para verificar a sincronização';
+    }
+
+    return ListTile(
+      leading: Icon(
+        ok == false
+            ? Icons.error_outline_rounded
+            : ok == true
+                ? Icons.check_circle_outline_rounded
+                : Icons.calendar_month_outlined,
+        color: ok == false
+            ? AppColors.red
+            : ok == true
+                ? AppColors.green
+                : null,
+      ),
+      title: Text(professionalLabel(professional)),
+      subtitle: Text(subtitle),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: () => _openGoogleSync(context, professional),
+    );
+  }
+
+  Future<void> _openGoogleSync(
+    BuildContext context,
+    Professional professional,
+  ) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => GoogleSyncPage(
+          store: store,
+          professional: professional,
+        ),
       ),
     );
   }
