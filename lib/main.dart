@@ -477,12 +477,15 @@ class AppStore extends ChangeNotifier {
     final to = DateTime(now.year + 3, 12, 31, 23, 59);
 
     try {
-      // Guarda as cores escolhidas manualmente.
+      // Mantém somente overrides já salvos manualmente.
+      // Não copia automaticamente a cor atual de todos os eventos,
+      // evitando que uma sincronização sobrescreva a escolha do usuário.
       for (final a in appointments) {
         if (a.professional == professional &&
             a.googleEventId != null &&
-            a.googleEventId!.isNotEmpty) {
-          colorOverrides[a.googleEventId!] = a.color.toARGB32();
+            a.googleEventId!.isNotEmpty &&
+            colorOverrides.containsKey(a.googleEventId!)) {
+          a.color = Color(colorOverrides[a.googleEventId!]!);
         }
       }
 
@@ -563,9 +566,9 @@ class AppStore extends ChangeNotifier {
     }
   }
 
-  Future<void> syncAppointment(Appointment a) async {
+  Future<bool> syncAppointment(Appointment a) async {
     try {
-      if (a.googleEventId == null) {
+      if (a.googleEventId == null || a.googleEventId!.isEmpty) {
         final oldId = a.id;
         await DioliCalendarBackend.createEvent(a);
         final i = appointments.indexWhere((x) => x.id == oldId);
@@ -573,10 +576,17 @@ class AppStore extends ChangeNotifier {
       } else {
         await DioliCalendarBackend.updateEvent(a);
       }
+
+      if (a.googleEventId != null && a.googleEventId!.isNotEmpty) {
+        colorOverrides[a.googleEventId!] = a.color.toARGB32();
+      }
+
       await save();
       notifyListeners();
-    } catch (_) {
-      // A alteração continua salva localmente e poderá ser reenviada depois.
+      return true;
+    } catch (e) {
+      print('ERRO AO SALVAR ALTERACAO NO GOOGLE: $e');
+      return false;
     }
   }
 
