@@ -456,13 +456,65 @@ class AppStore extends ChangeNotifier {
     );
   }
 
+  Future<void> loadSharedColors() async {
+    try {
+      final rows = await Supabase.instance.client
+          .from('appointment_colors')
+          .select('google_event_id, color_value');
+
+      for (final row in rows) {
+        final eventId = row['google_event_id']?.toString();
+        final value = row['color_value'];
+
+        if (eventId != null && eventId.isNotEmpty && value != null) {
+          colorOverrides[eventId] = (value as num).toInt();
+        }
+      }
+
+      for (final a in appointments) {
+        final eventId = a.googleEventId;
+        if (eventId != null && colorOverrides.containsKey(eventId)) {
+          a.color = Color(colorOverrides[eventId]!);
+        }
+      }
+
+      await save();
+      notifyListeners();
+    } catch (e) {
+      print('ERRO AO BUSCAR CORES COMPARTILHADAS: $e');
+    }
+  }
+
+  Future<void> saveSharedColor(Appointment a) async {
+    final eventId = a.googleEventId;
+    if (eventId == null || eventId.isEmpty) return;
+
+    final value = a.color.toARGB32();
+
+    colorOverrides[eventId] = value;
+
+    try {
+      await Supabase.instance.client.from('appointment_colors').upsert({
+        'google_event_id': eventId,
+        'color_value': value,
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      });
+    } catch (e) {
+      print('ERRO AO SALVAR COR COMPARTILHADA: $e');
+    }
+  }
+
   Future<void> syncGoogleCalendars() async {
+    await loadSharedColors();
+
     for (final professional in [
       Professional.giulia,
       Professional.tuani,
     ]) {
       await syncGoogleCalendar(professional);
     }
+
+    await loadSharedColors();
   }
 
   Future<bool> syncGoogleCalendar(Professional professional) async {
@@ -563,6 +615,10 @@ class AppStore extends ChangeNotifier {
       }
       await save();
       notifyListeners();
+
+      if (a.googleEventId != null && a.googleEventId!.isNotEmpty) {
+        await saveSharedColor(a);
+      }
     }
   }
 
