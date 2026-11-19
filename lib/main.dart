@@ -617,8 +617,8 @@ class AppStore extends ChangeNotifier {
       notifyListeners();
 
       if (a.googleEventId != null && a.googleEventId!.isNotEmpty) {
-        await saveSharedColor(a);
-      }
+      // Salva a cor em segundo plano para não bloquear a edição do evento.
+      unawaited(saveSharedColor(a));      }
     }
   }
 
