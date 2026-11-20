@@ -385,8 +385,8 @@ class AppStore extends ChangeNotifier {
 
   bool loaded = false;
   final Map<String, int> colorOverrides = {};
-  final Set<String> editingAppointmentIds = {};
-
+final Set<String> editingAppointmentIds = {};
+final Map<String, int> appointmentEditVersions = {};
   // Status da sincronização com o Google Agenda.
   final Map<Professional, bool> googleSyncing = {
     Professional.giulia: false,
@@ -542,6 +542,8 @@ class AppStore extends ChangeNotifier {
         }
       }
 
+     final editVersionsAtSyncStart =
+    Map<String, int>.from(appointmentEditVersions);
       final remote = await DioliCalendarBackend.listEvents(
         professional,
         from: from,
@@ -555,23 +557,31 @@ class AppStore extends ChangeNotifier {
         }
       }
 
-      final protectedEventIds = appointments
-          .where((a) => editingAppointmentIds.contains(a.id))
-          .map((a) => a.googleEventId)
-          .whereType<String>()
-          .toSet();
+final protectedAppointmentIds = appointments
+    .where((a) =>
+        editingAppointmentIds.contains(a.id) ||
+        (appointmentEditVersions[a.id] ?? 0) !=
+            (editVersionsAtSyncStart[a.id] ?? 0))
+    .map((a) => a.id)
+    .toSet();
 
-      final safeRemote = remote
-          .where((a) => !protectedEventIds.contains(a.googleEventId))
-          .toList();
+final protectedEventIds = appointments
+    .where((a) => protectedAppointmentIds.contains(a.id))
+    .map((a) => a.googleEventId)
+    .whereType<String>()
+    .toSet();
 
-      appointments.removeWhere(
-        (a) =>
-            a.professional == professional &&
-            a.googleEventId != null &&
-            !editingAppointmentIds.contains(a.id),
-      );
-      appointments.addAll(safeRemote);
+final safeRemote = remote
+    .where((a) => !protectedEventIds.contains(a.googleEventId))
+    .toList();
+
+appointments.removeWhere(
+  (a) =>
+      a.professional == professional &&
+      a.googleEventId != null &&
+      !protectedAppointmentIds.contains(a.id),
+);
+appointments.addAll(safeRemote);
       appointments.sort((a, b) => a.start.compareTo(b.start));
 
       googleSyncOk[professional] = true;
@@ -624,6 +634,8 @@ class AppStore extends ChangeNotifier {
     final i = appointments.indexWhere((x) => x.id == a.id);
     if (i >= 0) {
       editingAppointmentIds.add(a.id);
+      appointmentEditVersions[a.id] =
+    (appointmentEditVersions[a.id] ?? 0) + 1;
       appointments[i] = a;
       if (a.googleEventId != null && a.googleEventId!.isNotEmpty) {
         colorOverrides[a.googleEventId!] = a.color.toARGB32();
@@ -643,6 +655,8 @@ class AppStore extends ChangeNotifier {
   }
 
   Future<bool> syncAppointment(Appointment a) async {
+    appointmentEditVersions[a.id] =
+    (appointmentEditVersions[a.id] ?? 0) + 1;
     try {
       if (a.googleEventId == null || a.googleEventId!.isEmpty) {
         final oldId = a.id;
