@@ -385,7 +385,8 @@ class AppStore extends ChangeNotifier {
 
   bool loaded = false;
   final Map<String, int> colorOverrides = {};
-
+final Set<String> editingAppointmentIds = {};
+final Map<String, int> appointmentEditVersions = {};
   // Status da sincronização com o Google Agenda.
   final Map<Professional, bool> googleSyncing = {
     Professional.giulia: false,
@@ -541,6 +542,8 @@ class AppStore extends ChangeNotifier {
         }
       }
 
+     final editVersionsAtSyncStart =
+    Map<String, int>.from(appointmentEditVersions);
       final remote = await DioliCalendarBackend.listEvents(
         professional,
         from: from,
@@ -554,10 +557,31 @@ class AppStore extends ChangeNotifier {
         }
       }
 
-      appointments.removeWhere(
-        (a) => a.professional == professional && a.googleEventId != null,
-      );
-      appointments.addAll(remote);
+final protectedAppointmentIds = appointments
+    .where((a) =>
+        editingAppointmentIds.contains(a.id) ||
+        (appointmentEditVersions[a.id] ?? 0) !=
+            (editVersionsAtSyncStart[a.id] ?? 0))
+    .map((a) => a.id)
+    .toSet();
+
+final protectedEventIds = appointments
+    .where((a) => protectedAppointmentIds.contains(a.id))
+    .map((a) => a.googleEventId)
+    .whereType<String>()
+    .toSet();
+
+final safeRemote = remote
+    .where((a) => !protectedEventIds.contains(a.googleEventId))
+    .toList();
+
+appointments.removeWhere(
+  (a) =>
+      a.professional == professional &&
+      a.googleEventId != null &&
+      !protectedAppointmentIds.contains(a.id),
+);
+appointments.addAll(safeRemote);
       appointments.sort((a, b) => a.start.compareTo(b.start));
 
       googleSyncOk[professional] = true;
@@ -609,20 +633,30 @@ class AppStore extends ChangeNotifier {
   Future<void> updateAppointment(Appointment a) async {
     final i = appointments.indexWhere((x) => x.id == a.id);
     if (i >= 0) {
+      editingAppointmentIds.add(a.id);
+      appointmentEditVersions[a.id] =
+    (appointmentEditVersions[a.id] ?? 0) + 1;
       appointments[i] = a;
       if (a.googleEventId != null && a.googleEventId!.isNotEmpty) {
         colorOverrides[a.googleEventId!] = a.color.toARGB32();
       }
-      await save();
+      try {
+        await save();
+      } catch (e) {
+        print('ERRO AO SALVAR EDICAO LOCAL: $e');
+      }
       notifyListeners();
 
       if (a.googleEventId != null && a.googleEventId!.isNotEmpty) {
-      // Salva a cor em segundo plano para não bloquear a edição do evento.
-      unawaited(saveSharedColor(a));      }
+        // Salva a cor em segundo plano para não bloquear a edição do evento.
+        unawaited(saveSharedColor(a));
+      }
     }
   }
 
   Future<bool> syncAppointment(Appointment a) async {
+    appointmentEditVersions[a.id] =
+    (appointmentEditVersions[a.id] ?? 0) + 1;
     try {
       if (a.googleEventId == null || a.googleEventId!.isEmpty) {
         final oldId = a.id;
@@ -643,6 +677,8 @@ class AppStore extends ChangeNotifier {
     } catch (e) {
       print('ERRO AO SALVAR ALTERACAO NO GOOGLE: $e');
       return false;
+    } finally {
+      editingAppointmentIds.remove(a.id);
     }
   }
 
