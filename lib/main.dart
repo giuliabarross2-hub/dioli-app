@@ -385,6 +385,7 @@ class AppStore extends ChangeNotifier {
 
   bool loaded = false;
   final Map<String, int> colorOverrides = {};
+  final Set<String> editingAppointmentIds = {};
 
   // Status da sincronização com o Google Agenda.
   final Map<Professional, bool> googleSyncing = {
@@ -554,10 +555,23 @@ class AppStore extends ChangeNotifier {
         }
       }
 
+      final protectedEventIds = appointments
+          .where((a) => editingAppointmentIds.contains(a.id))
+          .map((a) => a.googleEventId)
+          .whereType<String>()
+          .toSet();
+
+      final safeRemote = remote
+          .where((a) => !protectedEventIds.contains(a.googleEventId))
+          .toList();
+
       appointments.removeWhere(
-        (a) => a.professional == professional && a.googleEventId != null,
+        (a) =>
+            a.professional == professional &&
+            a.googleEventId != null &&
+            !editingAppointmentIds.contains(a.id),
       );
-      appointments.addAll(remote);
+      appointments.addAll(safeRemote);
       appointments.sort((a, b) => a.start.compareTo(b.start));
 
       googleSyncOk[professional] = true;
@@ -609,16 +623,22 @@ class AppStore extends ChangeNotifier {
   Future<void> updateAppointment(Appointment a) async {
     final i = appointments.indexWhere((x) => x.id == a.id);
     if (i >= 0) {
+      editingAppointmentIds.add(a.id);
       appointments[i] = a;
       if (a.googleEventId != null && a.googleEventId!.isNotEmpty) {
         colorOverrides[a.googleEventId!] = a.color.toARGB32();
       }
-      await save();
+      try {
+        await save();
+      } catch (e) {
+        print('ERRO AO SALVAR EDICAO LOCAL: $e');
+      }
       notifyListeners();
 
       if (a.googleEventId != null && a.googleEventId!.isNotEmpty) {
-      // Salva a cor em segundo plano para não bloquear a edição do evento.
-      unawaited(saveSharedColor(a));      }
+        // Salva a cor em segundo plano para não bloquear a edição do evento.
+        unawaited(saveSharedColor(a));
+      }
     }
   }
 
@@ -643,6 +663,8 @@ class AppStore extends ChangeNotifier {
     } catch (e) {
       print('ERRO AO SALVAR ALTERACAO NO GOOGLE: $e');
       return false;
+    } finally {
+      editingAppointmentIds.remove(a.id);
     }
   }
 
